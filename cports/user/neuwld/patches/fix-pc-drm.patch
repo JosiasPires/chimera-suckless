@@ -1,0 +1,16 @@
+--- a/meson.build
++++ b/meson.build
+@@ -42,9 +42,13 @@
+ requires = [
+   dependency('fontconfig'),
+   dependency('pixman-1'),
++  dependency('libdrm'),
++  dependency('libdrm_intel'),
++  dependency('libdrm_nouveau'),
++  dependency('wayland-client'),
+ ]
+ requires_private = [
+   dependency('freetype2'),
+ ]
+
+ libwld_src = files(

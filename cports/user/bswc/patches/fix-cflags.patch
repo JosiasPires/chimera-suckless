@@ -1,0 +1,21 @@
+--- a/Makefile
++++ b/Makefile
+@@ -18,12 +18,14 @@ all: ${OUT} ${CTL_OUT} compile_flags
+
++ALL_CFLAGS = ${CFLAGS} ${PKG_CFLAGS}
++
+ ${OUT}: ${SRC}
+-	${CC} ${CFLAGS} ${CPPFLAGS} ${LDFLAGS} -o ${OUT} ${SRC} ${LDLIBS}
++	${CC} ${ALL_CFLAGS} ${CPPFLAGS} ${LDFLAGS} -o ${OUT} ${SRC} ${LDLIBS}
+
+ ${CTL_OUT}: ${CTL_SRC}
+-	${CC} ${CFLAGS} ${CPPFLAGS} ${LDFLAGS} -o ${CTL_OUT} ${CTL_SRC} ${LDLIBS}
++	${CC} ${ALL_CFLAGS} ${CPPFLAGS} ${LDFLAGS} -o ${CTL_OUT} ${CTL_SRC} ${LDLIBS}
+
+ clean:
+ 	rm -f ${OUT} ${CTL_OUT}
+
+ compile_flags:
+ 	rm -f compile_flags.txt
+-	printf '%s\n' ${CFLAGS} ${CPPFLAGS} > compile_flags.txt
++	printf '%s\n' ${ALL_CFLAGS} ${CPPFLAGS} > compile_flags.txt

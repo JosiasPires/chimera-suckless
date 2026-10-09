@@ -1,0 +1,20 @@
+--- a/Makefile
++++ b/Makefile
+@@ -5,7 +5,7 @@
+ WLR_XML = protocol/wlr-layer-shell-unstable-v1.xml
+ XDG_XML = `pkg-config --variable=pkgdatadir wayland-protocols`/stable/xdg-shell/xdg-shell.xml
+ 
+-CFLAGS  = -O2 -std=c99 -Werror -Wall -Wextra -pedantic `pkg-config --cflags $(PKGS)`
++ALL_CFLAGS = $(CFLAGS) -O2 -std=c99 -Werror -Wall -Wextra -pedantic `pkg-config --cflags $(PKGS)`
+ LDLIBS  = `pkg-config --libs $(PKGS)`
+ 
+ OBJ = mojito.o protocol/xdg-shell-client-protocol.o protocol/wlr-layer-shell-client-protocol.o
+@@ -21,7 +21,7 @@
+ 
+ .SUFFIXES: .c .o
+ .c.o:
+-	$(CC) $(CFLAGS) -c $< -o $@
++	$(CC) $(ALL_CFLAGS) -c $< -o $@
+ 
+ protocol/xdg-shell-client-protocol.h:
+ 	$(SCANNER) client-header $(XDG_XML) $@

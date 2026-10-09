@@ -1,0 +1,10 @@
+--- a/Makefile
++++ b/Makefile
+@@ -39,6 +39,6 @@
+ 	rm -f mojito $(OBJ) $(HDR) $(SRC)
+ 
+ install: mojito
+-	install -Dm 755 mojito -t $(PREFIX)/bin
++	install -Dm 755 mojito -t $(DESTDIR)$(PREFIX)/bin
+ 
+ .PHONY: all clean install

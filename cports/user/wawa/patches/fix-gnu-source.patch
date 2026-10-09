@@ -1,0 +1,8 @@
+--- a/wawa.c
++++ b/wawa.c
+@@ -1,4 +1,5 @@
+ /* See LICENSE file for copyright and license details. */
++#define _GNU_SOURCE /* for memfd_create() */
+ #include <byteswap.h>
+ #include <dirent.h>
+ #include <fcntl.h>

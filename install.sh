@@ -50,7 +50,6 @@ askpass ROOT_PASS "Senha do root"
 askpass FDE_PASS "Senha do FDE (LUKS)"
 ask TIMEZONE "Timezone" "America/Sao_Paulo"
 ask XKBLAYOUT "Keymap do console (XKB)" "br"
-ask ZRAM_SIZE "Tamanho do zram" "4G"
 ask WALLPAPER_URL "URL do wallpaper (vazio pula)" "https://picsum.photos/seed/chimera/1920/1080"
 
 say "desktop (compositor fixo: bswc)"
@@ -158,21 +157,19 @@ case "$NET_FLAVOR" in
      chimera-chroot /media/root ln -sf /usr/lib/dinit.d/dhcpcd /etc/dinit.d/boot.d/dhcpcd;;
 esac
 
-# ---------- zram ----------
-say "zram $ZRAM_SIZE"
-cat > /media/root/etc/rc.local <<EOF
-#!/bin/sh
-if [ -e /sys/block/zram0/disksize ]; then
-  swapoff /dev/zram0 2>/dev/null
-  echo 1 > /sys/block/zram0/reset 2>/dev/null || true
-fi
-modprobe zram 2>/dev/null || true
-echo zstd > /sys/block/zram0/comp_algorithm 2>/dev/null || true
-echo $ZRAM_SIZE > /sys/block/zram0/disksize 2>/dev/null || true
-mkswap /dev/zram0 2>/dev/null
-swapon -p 100 /dev/zram0 2>/dev/null
-exit 0
-EOF
+# ---------- zram nativo (dinit-zram) ----------
+say "zram nativo"
+ZRAM_BYTES=$(chimera-chroot /media/root awk '/MemTotal/ {print int($2*1024/2)}' /proc/meminfo)
+mkdir -p /media/root/etc/dinit-zram.d
+printf '[zram0]\nsize = %s\nalgorithm = zstd\nformat = mkswap -U clear %%0\n' \
+    "$ZRAM_BYTES" > /media/root/etc/dinit-zram.d/swap.conf
+grep -q /dev/zram0 /media/root/etc/fstab 2>/dev/null || \
+    echo "/dev/zram0 none swap sw,pri=100 0 0" >> /media/root/etc/fstab
+chimera-chroot /media/root ln -sf /usr/lib/dinit.d/zram-device@zram0 /etc/dinit.d/boot.d/ 2>/dev/null || \
+    chimera-chroot /media/root sh -c "mkdir -p /etc/dinit.d/boot.d && ln -sf /usr/lib/dinit.d/zram-device@zram0 /etc/dinit.d/boot.d/"
+# rc.local fica como gancho vazio (zram agora é nativo)
+printf '#!/bin/sh\n# gancho local (zram e gerenciado pelo dinit: zram-device@zram0).\nexit 0\n' \
+    > /media/root/etc/rc.local
 chmod +x /media/root/etc/rc.local
 
 # ---------- initramfs + efistub ----------

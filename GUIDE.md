@@ -167,28 +167,31 @@ ln -sf /usr/lib/dinit.d/elogind elogind
 ln -sf /usr/lib/dinit.d/syslog-ng syslog-ng
 ```
 
-## 10. zram (swap 50% RAM, zstd) [CHROOT]
+## 10. zram nativo (swap ~50% RAM, zstd) [CHROOT]
 
-Sem `zram-generator` no repo: via `/etc/rc.local` (executado no boot):
+Via mecanismo oficial do dinit-chimera (melhor que `rc.local`):
+`/etc/dinit-zram.d/swap.conf` + serviço `zram-device@zram0` + ativação
+pelo `fstab` (o helper só FORMATA; quem ativa é o `early-swap` via fstab).
 
 ```sh
-cat > /media/root/etc/rc.local <<'EOF'
-#!/bin/sh
-if [ -e /sys/block/zram0/disksize ]; then
-  swapoff /dev/zram0 2>/dev/null
-  echo 1 > /sys/block/zram0/reset 2>/dev/null || true
-fi
-modprobe zram 2>/dev/null || true
-echo zstd > /sys/block/zram0/comp_algorithm 2>/dev/null || true
-echo 4G > /sys/block/zram0/disksize 2>/dev/null || true
-mkswap /dev/zram0 2>/dev/null
-swapon -p 100 /dev/zram0 2>/dev/null
-exit 0
-EOF
-chmod +x /media/root/etc/rc.local
+ZRAM_BYTES=$(chimera-chroot /media/root awk '/MemTotal/ {print int($2*1024/2)}' /proc/meminfo)
+mkdir -p /media/root/etc/dinit-zram.d
+printf '[zram0]\nsize = %s\nalgorithm = zstd\nformat = mkswap -U clear %%0\n' \
+    "$ZRAM_BYTES" > /media/root/etc/dinit-zram.d/swap.conf
+echo "/dev/zram0 none swap sw,pri=100 0 0" >> /media/root/etc/fstab
+chimera-chroot /media/root sh -c \
+  "ln -sf /usr/lib/dinit.d/zram-device@zram0 /etc/dinit.d/boot.d/"
 ```
 
-(Ajuste `4G` p/ ~metade da RAM.)
+⚠️ Descobertas (não caia nessas):
+- O helper da versão atual **não avalia expressões**: `size = (/ ram 2)` e
+  backticks passam literais e falham. Use bytes literais (calcule por máquina).
+- O helper **só formata** (sem shell no `format`, sem `swapon` implícito) —
+  a linha do fstab é obrigatória.
+- zram usa backends próprios (`ZRAM_BACKEND_ZSTD` no kernel) — `CRYPTO_ZSTD`
+  sozinho NÃO serve (é só acomp; zram precisa de scomp).
+- `rc.local` fica como gancho vazio. Valide com `cat /proc/swaps`
+  (4G prio 100, `[zstd]`) + cold boot.
 
 ## 11. initramfs + EFISTUB sem bootloader [LIVE+CHROOT]
 
@@ -205,6 +208,27 @@ efibootmgr -v | grep -A2 Chimera   # anote o número (ex: Boot0008)
 
 Sem `grub`/`systemd-boot`/`limine`. Opcional (firmware chato): cópia fallback
 para `\EFI\BOOT\BOOTX64.EFI`.
+
+## 11b. UKI opcional (validado p/ o tiny; mantém EFISTUB como fallback)
+
+Empacota kernel+initrd+cmdline num `.efi` único (pacote `systemd-boot-ukify`,
+só a ferramenta — nenhum bootloader). Sem assinatura (SecureBoot off):
+
+```sh
+apk add systemd-boot-ukify
+mkdir -p /boot/EFI/Linux
+ukify build --linux=/boot/vmlinuz-7.2.2-tiny \
+  --initrd=/boot/initrd.img-7.2.2-tiny \
+  --cmdline='root=/dev/mapper/crypt rw console=ttyS0,115200 console=tty0' \
+  --output=/boot/EFI/Linux/chimera-tiny.efi   # ~10MB, unsigned
+efibootmgr --create --disk $DISK --part 1 --label "Chimera-UKI" \
+  --loader "\\EFI\\Linux\\chimera-tiny.efi"    # sem --unicode: cmdline vai embutida
+```
+
+Ordem sugerida: UKI primeiro, EFISTUB depois, genérico por último.
+Regenerar o UKI a cada rebuild de kernel/initramfs (automação futura:
+hook em `/usr/lib/kernel.d/`, ver plano cports). Valide `BootCurrent` após
+o boot + cold boot antes de confiar.
 
 ## 12. Stack Wayland: neuipc → neuwld → neuswc → bswc → mojito [CHROOT]
 
