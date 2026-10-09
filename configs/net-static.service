@@ -1,0 +1,4 @@
+type = scripted
+command = /usr/local/sbin/net-static.sh
+before: network.target
+depends-on: pre-network.target

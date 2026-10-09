@@ -1,0 +1,31 @@
+#!/bin/sh
+# liga/desliga a stack de audio sob demanda (lancamento direto, sem dinit).
+# o autostart foi removido de /usr/lib/dinit.d/user/boot.d (backup em /root/user-boot.d-bak).
+if [ -z "$XDG_RUNTIME_DIR" ] || [ ! -d "$XDG_RUNTIME_DIR" ] || [ ! -w "$XDG_RUNTIME_DIR" ]; then
+    XDG_RUNTIME_DIR="/tmp/runtime-$(id -u)"
+    mkdir -p "$XDG_RUNTIME_DIR"
+    chmod 700 "$XDG_RUNTIME_DIR"
+fi
+export XDG_RUNTIME_DIR
+case "$1" in
+    on)
+        pgrep -x pipewire >/dev/null 2>&1 || (pipewire >/tmp/pipewire.log 2>&1 &)
+        sleep 1
+        pgrep -x wireplumber >/dev/null 2>&1 || (wireplumber >/tmp/wireplumber.log 2>&1 &)
+        sleep 1
+        pgrep -x pipewire-pulse >/dev/null 2>&1 || (pipewire-pulse >/tmp/pipewire-pulse.log 2>&1 &)
+        ;;
+    off)
+        pkill -x pipewire-pulse 2>/dev/null
+        pkill -x wireplumber 2>/dev/null
+        pkill -x pipewire 2>/dev/null
+        ;;
+    status)
+        pgrep -a -x "pipewire|wireplumber|pipewire-pulse" 2>/dev/null || ps -eo comm | grep -E "pipewire|wireplumber"
+        ls /dev/snd/ 2>/dev/null || echo "sem /dev/snd (kernel sem som?)"
+        ;;
+    *)
+        echo "uso: audio on|off|status"
+        exit 1
+        ;;
+esac
