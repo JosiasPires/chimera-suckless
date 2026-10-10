@@ -1,0 +1,83 @@
+name: publish-repo
+
+# Publica o repo apk (gh-pages) a partir dos artifacts mais recentes
+# dos dois builds. Publicar por workflow separava e CLOBBERAVA o indice
+# (cada build gera indice so com seus pacotes); aqui o indice e
+# regenerado sobre o merge (cbuild index).
+on:
+  workflow_run:
+    workflows: ["build-userspace", "build-kernel"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout cports (ferramenta cbuild)
+        uses: actions/checkout@v4
+        with:
+          repository: chimera-linux/cports
+          ref: master
+          path: cports
+
+      - name: host deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -qy python3 git openssl ca-certificates
+          curl -fsSLO https://repo.chimera-linux.org/apk/latest/apk-x86_64.static
+          chmod +x apk-x86_64.static
+          sudo install -m755 apk-x86_64.static /usr/local/bin/apk
+          apk --version
+
+      - name: signing key (CI)
+        env:
+          APK_SIGN_KEY: ${{ secrets.APK_SIGN_KEY }}
+        run: |
+          mkdir -p cports/etc/keys
+          printf '%s' "$APK_SIGN_KEY" > cports/etc/keys/ci.rsa
+          chmod 600 cports/etc/keys/ci.rsa
+          openssl rsa -in cports/etc/keys/ci.rsa -pubout \
+            -out cports/etc/keys/ci.rsa.pub
+          # cbuild so conhece a chave via [signing] no config.ini
+          printf '[signing]\nkey = etc/keys/ci.rsa\n' > cports/etc/config.ini
+
+      - name: fetch userspace artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-userspace.yml
+          branch: main
+          name: apk-userspace
+          path: repo
+          if_no_artifact_found: warn
+
+      - name: fetch kernel artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-kernel.yml
+          branch: main
+          name: apk-kernel
+          path: repo
+          if_no_artifact_found: warn
+
+      - name: merge + reindex
+        working-directory: cports
+        run: |
+          mkdir -p packages/user/x86_64
+          cp -r ../repo/user/. packages/user/ 2>/dev/null || true
+          ls packages/user/x86_64/*.apk 2>/dev/null | wc -l
+          ./cbuild index packages/user
+
+      - name: publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./cports/packages
+          publish_branch: gh-pages
+          keep_files: true

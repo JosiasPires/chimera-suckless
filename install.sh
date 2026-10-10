@@ -126,7 +126,10 @@ else
     curl -fsSL "https://raw.githubusercontent.com/JosiasPires/chimera-suckless/main/keys/ci.rsa.pub" \
         -o /media/root/etc/apk/keys/ci.rsa.pub || { echo "falha ao buscar chave do overlay"; exit 1; }
 fi
-chimera-chroot /media/root apk update
+chimera-chroot /media/root apk update || { echo "ERRO: apk update falhou (rede? repo?)"; exit 1; }
+# valida que o overlay resolve (fail-fast: nao adianta seguir sem os pacotes;
+# NB: apk search retorna 0 mesmo sem match, por isso testa saida nao-vazia)
+[ -n "$(chimera-chroot /media/root apk search -q bswc 2>/dev/null)" ] || { echo "ERRO: overlay nao esta resolvendo pacotes (verifique URL/chave/rede)"; exit 1; }
 
 # ---------- pacotes ----------
 # (stack wayland + kernel tiny vem do overlay, mais abaixo; aqui so base)
@@ -137,7 +140,7 @@ case "$TERMINAL" in foot) PKGS="$PKGS foot";; esac
 case "$LAUNCHER" in rofi) PKGS="$PKGS rofi";; fuzzel) PKGS="$PKGS fuzzel";; esac
 case "$WITH_AUDIO" in s*) PKGS="$PKGS pipewire wireplumber";; esac
 # shellcheck disable=SC2086
-chimera-chroot /media/root apk add $PKGS
+chimera-chroot /media/root apk add $PKGS || { echo "ERRO: apk add base falhou"; exit 1; }
 
 # ---------- fstab/crypttab/identidade ----------
 say "fstab/crypttab/identidade"
@@ -211,7 +214,7 @@ case "$KERNEL_FLAVOR" in
     # cmdline ANTES do apk add: o hook 55-tiny-uki.sh exige o arquivo
     mkdir -p /media/root/etc/kernel
     fetch_cfg uki-cmdline.txt /media/root/etc/kernel/cmdline-tiny
-    chimera-chroot /media/root apk add linux-tiny
+    chimera-chroot /media/root apk add linux-tiny || { echo "ERRO: apk add linux-tiny falhou"; exit 1; }
     # hooks kernel.d rodam no chroot (00-setup, 50-initramfs, 55-tiny-uki);
     # se algo nao gerou, completa aqui:
     KVER_TINY=$(ls /media/root/boot/ | sed -n 's/vmlinuz-//p' | grep tiny | sort -V | tail -1)
@@ -227,13 +230,21 @@ efibootmgr --create --disk "$DISK" --part 1 --label "Chimera" \
   --loader "\\vmlinuz-$KVER" \
   --unicode "root=/dev/mapper/crypt rw initrd=\\initrd.img-$KVER"
 if [ -n "${KVER_TINY:-}" ]; then
-  # entry EFISTUB direta do tiny (fallback) + UKI (primario, se gerado)
-  efibootmgr --create --disk "$DISK" --part 1 --label "Chimera-tiny" \
-    --loader "\\vmlinuz-$KVER_TINY" \
-    --unicode "root=/dev/mapper/crypt rw console=ttyS0,115200 console=tty0 initrd=\\initrd.img-$KVER_TINY"
+  # entry EFISTUB direta do tiny (fallback; hook UKI cuida da principal)
+  if efibootmgr | grep -q "Chimera-tiny"; then
+    echo "entry Chimera-tiny ja existe, mantendo"
+  else
+    efibootmgr --create --disk "$DISK" --part 1 --label "Chimera-tiny" \
+      --loader "\\vmlinuz-$KVER_TINY" \
+      --unicode "root=/dev/mapper/crypt rw console=ttyS0,115200 console=tty0 initrd=\\initrd.img-$KVER_TINY"
+  fi
   if [ -f /media/root/boot/EFI/Linux/chimera-tiny.efi ]; then
-    efibootmgr --create --disk "$DISK" --part 1 --label "Chimera-UKI" \
-      --loader "\\EFI\\Linux\\chimera-tiny.efi"
+    if efibootmgr | grep -q "Chimera-UKI"; then
+      echo "entry Chimera-UKI ja existe (hook), mantendo"
+    else
+      efibootmgr --create --disk "$DISK" --part 1 --label "Chimera-UKI" \
+        --loader "\\EFI\\Linux\\chimera-tiny.efi"
+    fi
   else
     echo "AVISO: UKI nao gerado no chroot; sera criado no 1o boot pelo hook (ou rode ukify manual, GUIDE §11b)"
   fi
@@ -245,7 +256,7 @@ say "stack wayland via apk (overlay)"
 WLPGS="neuipc neuwld neuswc bswc mojito wawa pfetch"
 case "$TERMINAL" in hst) WLPGS="$WLPGS hst";; esac
 # shellcheck disable=SC2086
-chimera-chroot /media/root apk add $WLPGS
+chimera-chroot /media/root apk add $WLPGS || { echo "ERRO: apk add wayland falhou (overlay fora do ar?)"; exit 1; }
 echo "wayland via apk OK (binarios em /usr/bin, libs como dependencias)"
 pause
 
