@@ -76,6 +76,10 @@ Secret `APK_SIGN_KEY` cadastrado.
 - **Linter**: o cbuild exige `flake8` ou `ruff` (`auto`); instalar ruff
   (binário estático) no `host deps` deixa o resultado determinístico
   entre imagens de runner.
+- **OOM silencioso no kernel**: com `-j` default (=nproc=4), o clang
+  estoura os 16GB do runner e o OOM-killer derruba o build **sem
+  nenhuma linha de erro no log** (só `Error 2` após `CC`/`AR` normais).
+  Job do kernel roda com `./cbuild -j3` (~15-18min, estável).
 
 ## linux-tiny (kernel do overlay)
 
