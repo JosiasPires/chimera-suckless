@@ -77,16 +77,23 @@ jobs:
         working-directory: cports
         run: ./cbuild bootstrap
 
-      - name: diagnose sysusers on failure
+      - name: diagnose userns on failure
         if: failure()
-        working-directory: cports
         run: |
-          ls -la bldroot/etc/ | head -25
-          ls bldroot/usr/lib/sysusers.d/ 2>&1
-          /usr/bin/bwrap --unshare-all --hostname cbuild --share-net \
-            --bind $PWD/bldroot / --dev /dev --proc /proc --tmpfs /tmp \
-            --uid 1337 --gid 1337 --chdir / -- usr/bin/sd-sysusers
-          echo "sd-sysusers rc=$?"
+          echo "--- identity ---"
+          id; bwrap --version
+          echo "--- sysctls ---"
+          cat /proc/sys/kernel/unprivileged_userns_clone 2>&1
+          cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>&1
+          cat /proc/sys/user/max_user_namespaces 2>&1
+          echo "--- subuid/subgid ---"
+          grep -E "^runner|^$(whoami)" /etc/subuid /etc/subgid 2>&1
+          echo "--- matrix ---"
+          unshare -rm true && echo UNSHARE_ROOT_OK || echo UNSHARE_ROOT_FAIL
+          bwrap --unshare-user --uid 1337 --gid 1337 true \
+            && echo BWRAP_UID_OK || echo BWRAP_UID_FAIL
+          bwrap --unshare-all --share-net --uid 1337 --gid 1337 true \
+            && echo BWRAP_FULL_OK || echo BWRAP_FULL_FAIL
 
       - name: build overlay packages
         working-directory: cports
