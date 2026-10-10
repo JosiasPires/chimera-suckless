@@ -99,4 +99,4 @@ jobs:
         with:
           name: apk-userspace
           path: cports/packages/
-          retention-days: 30
+          retention-days: 90

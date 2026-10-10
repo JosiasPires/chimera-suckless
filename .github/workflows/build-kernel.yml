@@ -81,4 +81,4 @@ jobs:
         with:
           name: apk-kernel
           path: cports/packages/
-          retention-days: 30
+          retention-days: 90
