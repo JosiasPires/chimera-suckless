@@ -11,7 +11,7 @@
 # Bump de pkgrel exige CONFIG_LOCALVERSION="-<pkgrel>-tiny" no config.
 pkgname = "linux-tiny"
 pkgver = "7.2.2"
-pkgrel = 1
+pkgrel = 2
 archs = ["x86_64"]
 build_style = "linux_kernel"
 configure_args = ["FLAVOR=tiny", f"RELEASE={pkgrel}"]
