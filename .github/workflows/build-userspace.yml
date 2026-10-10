@@ -45,6 +45,11 @@ jobs:
           chmod +x apk-x86_64.static
           sudo install -m755 apk-x86_64.static /usr/local/bin/apk
           apk --version
+          # linter/formatter exigido pelo cbuild (auto = flake8 || ruff)
+          curl -fsSL https://github.com/astral-sh/ruff/releases/latest/download/ruff-x86_64-unknown-linux-gnu.tar.gz -o ruff.tgz
+          tar xzf ruff.tgz
+          sudo install -m755 ruff-*/ruff /usr/local/bin/ruff
+          ruff --version
 
       - name: preflight namespaces
         run: |
