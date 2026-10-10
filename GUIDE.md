@@ -242,7 +242,10 @@ apk add linux-tiny   # puxa systemd-boot-ukify + efibootmgr sozinho
 ```
 
 Sem assinatura (SecureBoot off). Ordem sugerida: UKI primeiro, EFISTUB
-depois, genérico por último. Manual (fallback/diagnóstico):
+depois, genérico por último — **definida explicitamente** (`efibootmgr -o`),
+nunca confie na ordem padrão do firmware numa NVRAM fresca (ele pode
+bootar o genérico primeiro). Em reinstall, delete entries stale com os
+mesmos labels antes (apontam p/ ESP antigo). Manual (fallback/diagnóstico):
 
 ```sh
 ukify build --linux=/boot/vmlinuz-<ver> --initrd=/boot/initrd.img-<ver> \
