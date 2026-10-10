@@ -93,6 +93,10 @@ Secret `APK_SIGN_KEY` cadastrado.
 - Kernel sem módulos não gera `modules.order`, mas os hooks de kernel.d
   exigem o arquivo; o template cria um vazio em
   `usr/lib/modules/*-tiny/apk-dist/` no `install()`.
+- O hook UKI escolhe a versão pelo carimbo
+  `/boot/EFI/Linux/.chimera-tiny.version`, não por mtime: vmlinuz
+  empacotado carrega mtime do build (sempre mais velho que um UKI já
+  gerado), então teste `-nt` puro pula upgrades para sempre.
 
 ## Dual-kernel e promoção
 

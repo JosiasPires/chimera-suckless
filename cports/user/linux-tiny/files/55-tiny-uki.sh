@@ -13,7 +13,6 @@
 LABEL="Chimera-UKI"
 UKI_NAME="chimera-tiny.efi"
 CMDLINE_FILE="/etc/kernel/cmdline-tiny"
-
 KRET=0
 
 [ -d /sys/firmware/efi ] || exit 0
@@ -50,12 +49,15 @@ for KVER in $(linux-version list 2>/dev/null | linux-version sort --reverse); do
     INITRD="/boot/initrd.img-${KVER}"
     [ -f "$VMLINUZ" ] || continue
     [ -f "$INITRD" ] || continue
-    # um unico UKI (nome estavel): a versao tiny mais nova vence
+    # um unico UKI (nome estavel): a versao tiny mais nova vence.
+    # carimbo de versao ao lado do UKI: mtime nao serve (vmlinuz empacotado
+    # carrega mtime do build, sempre mais velho que um UKI ja gerado).
     UKI="$UKIDIR/$UKI_NAME"
-    # rebuild only when missing or inputs are newer (noop otherwise,
-    # e.g. when only the generic kernel changed)
-    if [ -f "$UKI" ] && [ "$UKI" -nt "$VMLINUZ" ] \
-        && [ "$UKI" -nt "$INITRD" ]; then
+    STAMP="$UKIDIR/.chimera-tiny.version"
+    # rebuild quando: sem UKI, versao nova, ou entradas mais novas que o UKI
+    # (ex: initrd regenerado localmente tem mtime fresco e conta aqui)
+    if [ -f "$UKI" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$KVER" ] \
+        && [ "$UKI" -nt "$VMLINUZ" ] && [ "$UKI" -nt "$INITRD" ]; then
         break
     fi
     echo "55-tiny-uki: building $UKI for $KVER..."
@@ -65,6 +67,7 @@ for KVER in $(linux-version list 2>/dev/null | linux-version sort --reverse); do
         KRET=1
         break
     fi
+    echo "$KVER" > "$STAMP"
     # refresh the efiboot entry, preserving BootOrder position
     ESPSRC=$(findmnt -no SOURCE -T "$UKIDIR")
     case "$ESPSRC" in
