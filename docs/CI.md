@@ -42,8 +42,28 @@ da VM (ver GUIDE.md), com pinning `@local` para preferir nossos pacotes.
 - `update-check.yml`: cron semanal (inclui `user/linux-tiny`), abre
   issue se houver versão nova.
 
-**Status**: primeiro run real ainda pendente; secret `APK_SIGN_KEY`
-cadastrado. Workflows nunca rodaram em runner real.
+**Status**: primeiro verde em ambos (userspace ~minutos, kernel ~12min
+no runner gratuito de 4 cores — sem necessidade de otimizar por ora).
+Secret `APK_SIGN_KEY` cadastrado.
+
+## Licoes do CI (runners hospedados Ubuntu)
+
+- **Signing key**: gravar a privada em `cports/etc/keys/` não basta; o
+  cbuild só a reconhece via `[signing] key = etc/keys/ci.rsa` no
+  `etc/config.ini` (sem flag CLI). Erro típico: `no signing key set`
+  no bootstrap. Derivar a `.pub` com openssl no mesmo step.
+- **User namespaces bloqueados**: runners têm
+  `apparmor_restrict_unprivileged_userns=1` → `bwrap` falha com
+  `setting up uid map: Permission denied`. Fix: um step com
+  `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`
+  antes do bootstrap (com `sudo` o sysctl é permitido).
+- **Symlinks de subpacote**: o overlay precisa commitar os links
+  `<pkg>-devel -> <pkg>` (convenção do cports); sem eles,
+  `subpackage ... is missing a symlink` e o bulk falha. `cp -r` no
+  workflow preserva symlinks.
+- **Linter**: o cbuild exige `flake8` ou `ruff` (`auto`); instalar ruff
+  (binário estático) no `host deps` deixa o resultado determinístico
+  entre imagens de runner.
 
 ## linux-tiny (kernel do overlay)
 
