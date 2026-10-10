@@ -74,7 +74,9 @@ jobs:
 
       - name: build tiny kernel
         working-directory: cports
-        run: ./cbuild pkg user/linux-tiny
+        # -j3, nao -j4 (default=nproc): clang estoura os 16GB do runner
+        # em pico e o OOM-killer derruba o build sem mensagem no log
+        run: ./cbuild -j3 pkg user/linux-tiny
 
       - name: upload packages
         uses: actions/upload-artifact@v4
