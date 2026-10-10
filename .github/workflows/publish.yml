@@ -30,7 +30,7 @@ jobs:
       - name: host deps
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -qy python3 git openssl ca-certificates
+          sudo apt-get install -qy python3 git bubblewrap openssl ca-certificates
           curl -fsSLO https://repo.chimera-linux.org/apk/latest/apk-x86_64.static
           chmod +x apk-x86_64.static
           sudo install -m755 apk-x86_64.static /usr/local/bin/apk
