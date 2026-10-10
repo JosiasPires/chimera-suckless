@@ -35,6 +35,12 @@ jobs:
           unshare -rm true && echo "user-ns OK"
           test -d /sys/fs/cgroup
 
+      - name: allow unprivileged userns (GH runners block it via AppArmor)
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns
+          unshare -rm true && echo "user-ns OK after toggle"
+
       - name: checkout cports
         uses: actions/checkout@v4
         with:
