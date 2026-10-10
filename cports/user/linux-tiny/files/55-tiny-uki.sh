@@ -90,15 +90,13 @@ for KVER in $(linux-version list 2>/dev/null | linux-version sort --reverse); do
     fi
     NEWNUM=$(efibootmgr | sed -n "s/^Boot\([0-9A-Fa-f]*\)\* $LABEL.*/\1/p" | head -1)
     if [ -n "$NEWNUM" ] && [ -n "$OLDORDER" ]; then
-        NEWORDER=",$OLDORDER,"
-        for old in $OLDNUMS; do
-            NEWORDER=$(echo "$NEWORDER" | sed "s/,$old,/,$NEWNUM,/g")
+        # tiny e primario por desegno: UKI primeiro, resto dedupado atras.
+        # (generico continua na ordem como fallback.)
+        NEWORDER="$NEWNUM"
+        for old in $(echo "$OLDORDER" | tr ',' ' '); do
+            case ",$NEWORDER," in *",$old,"*) ;; *) NEWORDER="$NEWORDER,$old";; esac
         done
-        NEWORDER=$(echo "$NEWORDER" | sed 's/^,//;s/,$//')
-        case "$NEWORDER" in
-            *"$NEWNUM"*) efibootmgr -o "$NEWORDER" >/dev/null 2>&1 || true ;;
-            *) efibootmgr -o "$NEWNUM,$NEWORDER" >/dev/null 2>&1 || true ;;
-        esac
+        efibootmgr -o "$NEWORDER" >/dev/null 2>&1 || true
     fi
     echo "55-tiny-uki: $LABEL entry updated ($ESPSRC)."
     break

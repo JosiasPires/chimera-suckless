@@ -226,29 +226,43 @@ case "$KERNEL_FLAVOR" in
 esac
 KVER=$(ls /media/root/boot/ | sed -n 's/vmlinuz-//p' | head -1)
 echo "kernel generic (fallback): $KVER"
+# limpa entries nossas (inclusive stale de installs anteriores: mesmo label,
+# ESP antigo) e recria do zero; ordem explicita no final
+for _lbl in Chimera Chimera-tiny Chimera-UKI; do
+  for _n in $(efibootmgr | sed -n "s/^Boot\([0-9A-Fa-f]*\)\* $_lbl.*/\1/p"); do
+    efibootmgr -b "$_n" -B >/dev/null 2>&1 || true
+  done
+done
 efibootmgr --create --disk "$DISK" --part 1 --label "Chimera" \
   --loader "\\vmlinuz-$KVER" \
   --unicode "root=/dev/mapper/crypt rw initrd=\\initrd.img-$KVER"
+NUM_GENERIC=$(efibootmgr | sed -n 's/^Boot\([0-9A-Fa-f]*\)\* Chimera.*/\1/p' | head -1)
 if [ -n "${KVER_TINY:-}" ]; then
   # entry EFISTUB direta do tiny (fallback; hook UKI cuida da principal)
-  if efibootmgr | grep -q "Chimera-tiny"; then
-    echo "entry Chimera-tiny ja existe, mantendo"
-  else
-    efibootmgr --create --disk "$DISK" --part 1 --label "Chimera-tiny" \
-      --loader "\\vmlinuz-$KVER_TINY" \
-      --unicode "root=/dev/mapper/crypt rw console=ttyS0,115200 console=tty0 initrd=\\initrd.img-$KVER_TINY"
-  fi
+  efibootmgr --create --disk "$DISK" --part 1 --label "Chimera-tiny" \
+    --loader "\\vmlinuz-$KVER_TINY" \
+    --unicode "root=/dev/mapper/crypt rw console=ttyS0,115200 console=tty0 initrd=\\initrd.img-$KVER_TINY"
+  NUM_TINY=$(efibootmgr | sed -n 's/^Boot\([0-9A-Fa-f]*\)\* Chimera-tiny.*/\1/p' | head -1)
   if [ -f /media/root/boot/EFI/Linux/chimera-tiny.efi ]; then
-    if efibootmgr | grep -q "Chimera-UKI"; then
-      echo "entry Chimera-UKI ja existe (hook), mantendo"
-    else
-      efibootmgr --create --disk "$DISK" --part 1 --label "Chimera-UKI" \
-        --loader "\\EFI\\Linux\\chimera-tiny.efi"
-    fi
+    efibootmgr --create --disk "$DISK" --part 1 --label "Chimera-UKI" \
+      --loader "\\EFI\\Linux\\chimera-tiny.efi"
+    NUM_UKI=$(efibootmgr | sed -n 's/^Boot\([0-9A-Fa-f]*\)\* Chimera-UKI.*/\1/p' | head -1)
   else
     echo "AVISO: UKI nao gerado no chroot; sera criado no 1o boot pelo hook (ou rode ukify manual, GUIDE §11b)"
   fi
 fi
+# BootOrder explicita: UKI > tiny-direto > generico > resto (sem dupes).
+# Sem isso o firmware pode bootar o generico primeiro numa NVRAM fresca.
+ORDER=","
+for _n in ${NUM_UKI:-} ${NUM_TINY:-} ${NUM_GENERIC:-}; do
+  ORDER="$ORDER$_n,"
+done
+for _n in $(efibootmgr | sed -n 's/^BootOrder: //p' | tr ',' ' '); do
+  case "$ORDER" in *",$_n,"*) ;; *) ORDER="$ORDER$_n,";; esac
+done
+ORDER=$(echo "$ORDER" | sed 's/^,//;s/,$//;s/,,*/,/g')
+echo "BootOrder: $ORDER"
+efibootmgr -o "$ORDER"
 pause
 
 # ---------- stack wayland (pacotes do overlay) ----------
