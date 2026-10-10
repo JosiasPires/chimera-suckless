@@ -47,8 +47,10 @@ da VM (ver GUIDE.md), com pinning `@local` para preferir nossos pacotes.
   workflow de build separado** — cada build gera índice só com seus
   pacotes e clobbera o índice full (foi exatamente o bug `no such
   package` no primeiro teste do zero: índice de 771b vs 3495b).
-  O job de publish também precisa de `bubblewrap` instalado
-  (`cbuild index` chama bwrap).
+  O merge usa dirs separados por artifact + seed do repo vivo
+  (sparse checkout do `gh-pages`): mesmo se um download vier vazio,
+  o índice nunca regride. O job de publish também precisa de
+  `bubblewrap` instalado (`cbuild index` chama bwrap).
 - Endurecido após recorrência: downloads com `if_no_artifact_found:
   error` (artifact expirado = falha alto, nunca publica parcial) +
   gate que exige ≥10 `.apk` com `linux-tiny` e `bswc` presentes +

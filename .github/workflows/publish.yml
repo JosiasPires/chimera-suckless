@@ -59,7 +59,7 @@ jobs:
           workflow: build-userspace.yml
           branch: main
           name: apk-userspace
-          path: repo
+          path: art-us
           if_no_artifact_found: error
 
       - name: fetch kernel artifacts
@@ -68,14 +68,23 @@ jobs:
           workflow: build-kernel.yml
           branch: main
           name: apk-kernel
-          path: repo
+          path: art-k
           if_no_artifact_found: error
+
+      - name: seed from live repo (nunca regredir o indice)
+        run: |
+          git clone -q --depth 1 --branch gh-pages --sparse \
+            "https://github.com/${{ github.repository }}.git" live-repo
+          git -C live-repo sparse-checkout set user/x86_64
+          ls live-repo/user/x86_64/*.apk 2>/dev/null | wc -l
 
       - name: merge + reindex
         working-directory: cports
         run: |
           mkdir -p packages/user/x86_64
-          cp -r ../repo/user/. packages/user/ 2>/dev/null || true
+          cp -r ../live-repo/user/. packages/user/ 2>/dev/null || true
+          cp -r ../art-us/user/. packages/user/ 2>/dev/null || true
+          cp -r ../art-k/user/. packages/user/ 2>/dev/null || true
           # gate: nunca publicar indice parcial (ex.: artifact expirado).
           # espera-se userspace (8+ pkgs) + kernel no merge.
           NPKGS=$(ls packages/user/x86_64/*.apk 2>/dev/null | wc -l)
