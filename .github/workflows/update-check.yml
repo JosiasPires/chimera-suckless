@@ -34,6 +34,7 @@ jobs:
         run: |
           ./cbuild update-check user/neuipc user/neuwld user/neuswc \
             user/bswc user/mojito user/wawa user/hst user/pfetch \
+            user/linux-tiny \
             > /tmp/updates.txt 2>&1 || true
           cat /tmp/updates.txt
           {

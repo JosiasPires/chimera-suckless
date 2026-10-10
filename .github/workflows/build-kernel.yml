@@ -1,11 +1,11 @@
-name: build-packages
+name: build-kernel
 
 on:
   push:
     branches: [main]
-    paths: ["cports/**", ".github/workflows/build.yml"]
-  pull_request:
-    paths: ["cports/**"]
+    paths:
+      - "cports/user/linux-tiny/**"
+      - ".github/workflows/build-kernel.yml"
   workflow_dispatch:
 
 env:
@@ -14,6 +14,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: checkout overlay
         uses: actions/checkout@v4
@@ -56,16 +57,14 @@ jobs:
         working-directory: cports
         run: ./cbuild bootstrap
 
-      - name: build overlay packages
+      - name: build tiny kernel
         working-directory: cports
-        run: |
-          ./cbuild pkg user/neuipc user/neuwld user/neuswc
-          ./cbuild pkg user/bswc user/mojito user/wawa user/hst user/pfetch
+        run: ./cbuild pkg user/linux-tiny
 
       - name: upload packages
         uses: actions/upload-artifact@v4
         with:
-          name: apk-packages
+          name: apk-kernel
           path: cports/packages/
           retention-days: 14
 
@@ -79,7 +78,7 @@ jobs:
       - name: fetch artifacts
         uses: actions/download-artifact@v4
         with:
-          name: apk-packages
+          name: apk-kernel
           path: repo
       - name: publish to gh-pages
         uses: peaceiris/actions-gh-pages@v4

@@ -1,0 +1,107 @@
+name: build-userspace
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cports/user/neuipc/**"
+      - "cports/user/neuwld/**"
+      - "cports/user/neuswc/**"
+      - "cports/user/bswc/**"
+      - "cports/user/mojito/**"
+      - "cports/user/wawa/**"
+      - "cports/user/hst/**"
+      - "cports/user/pfetch/**"
+      - ".github/workflows/build-userspace.yml"
+  pull_request:
+    paths:
+      - "cports/user/neuipc/**"
+      - "cports/user/neuwld/**"
+      - "cports/user/neuswc/**"
+      - "cports/user/bswc/**"
+      - "cports/user/mojito/**"
+      - "cports/user/wawa/**"
+      - "cports/user/hst/**"
+      - "cports/user/pfetch/**"
+  workflow_dispatch:
+
+env:
+  CPORTS_REF: master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout overlay
+        uses: actions/checkout@v4
+        with:
+          path: overlay
+
+      - name: host deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -qy python3 git bubblewrap openssl ca-certificates
+          curl -fsSLO https://repo.chimera-linux.org/apk/latest/apk-x86_64.static
+          chmod +x apk-x86_64.static
+          sudo install -m755 apk-x86_64.static /usr/local/bin/apk
+          apk --version
+
+      - name: preflight namespaces
+        run: |
+          unshare -rm true && echo "user-ns OK"
+          test -d /sys/fs/cgroup
+
+      - name: checkout cports
+        uses: actions/checkout@v4
+        with:
+          repository: chimera-linux/cports
+          ref: ${{ env.CPORTS_REF }}
+          path: cports
+
+      - name: overlay templates
+        run: cp -r overlay/cports/user/. cports/user/
+
+      - name: signing key (CI)
+        env:
+          APK_SIGN_KEY: ${{ secrets.APK_SIGN_KEY }}
+        run: |
+          mkdir -p cports/etc/keys
+          printf '%s' "$APK_SIGN_KEY" > cports/etc/keys/ci.rsa
+          chmod 600 cports/etc/keys/ci.rsa
+
+      - name: bootstrap
+        working-directory: cports
+        run: ./cbuild bootstrap
+
+      - name: build overlay packages
+        working-directory: cports
+        run: |
+          ./cbuild pkg user/neuipc user/neuwld user/neuswc
+          ./cbuild pkg user/bswc user/mojito user/wawa user/hst user/pfetch
+
+      - name: upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-userspace
+          path: cports/packages/
+          retention-days: 14
+
+  publish:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: fetch artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: apk-userspace
+          path: repo
+      - name: publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./repo
+          publish_branch: gh-pages
+          keep_files: true

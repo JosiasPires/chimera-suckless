@@ -26,14 +26,18 @@ da VM (ver GUIDE.md), com pinning `@local` para preferir nossos pacotes.
 
 ## Workflows
 
-- `build.yml`: em push/PR que toque `cports/`. Faz bootstrap binário (sem
-  exigir host musl), build dos pacotes do overlay, upload de artifact; na
-  `main`, publica em `gh-pages` (repo apk consumível).
-- `update-check.yml`: cron semanal, abre issue se houver versão nova.
+- `build-userspace.yml`: push/PR com path-filter nos 8 pacotes
+  userspace. Bootstrap binário, build, artifact `apk-userspace`; na
+  `main`, publica em `gh-pages`.
+- `build-kernel.yml`: push com path-filter em `cports/user/linux-tiny/`
+  + manual. Build só do `user/linux-tiny` (`timeout-minutes: 120`),
+  artifact `apk-kernel`; na `main`, publica na mesma `gh-pages`
+  (`keep_files: true`). Sem trigger em PR (economiza ~30min de runner).
+- `update-check.yml`: cron semanal (inclui `user/linux-tiny`), abre
+  issue se houver versão nova.
 
-**Status**: templates validados com build local real no host (x86_64) —
-neuipc, neuwld, neuswc, bswc (+bard), mojito, wawa, hst, pfetch, todos com
-`.apk` gerado. Workflows ainda não rodaram em runner real.
+**Status**: primeiro run real ainda pendente; secret `APK_SIGN_KEY`
+cadastrado. Workflows nunca rodaram em runner real.
 
 ## linux-tiny (kernel do overlay)
 
