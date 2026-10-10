@@ -6,6 +6,12 @@
 |---|---|---|
 | `APK_SIGN_KEY` | chave **privada** rsa do cports (`etc/keys/ci-*.rsa`) | `./cbuild keygen` local (nunca commitar!) |
 
+No runner, além de gravar a privada em `cports/etc/keys/ci.rsa`, é
+preciso registrá-la (`printf '[signing]\nkey = etc/keys/ci.rsa\n'`
+em `cports/etc/config.ini`) + derivar a `.pub` via openssl — o cbuild
+só conhece chave pelo config (`no signing key set` caso contrário) e
+não há flag CLI para isso.
+
 A `.pub` correspondente fica em `keys/ci.rsa.pub` neste repo (pública, pode
 commitar) e vai para `/etc/apk/keys` das máquinas que consomem o repo.
 

@@ -68,6 +68,10 @@ jobs:
           mkdir -p cports/etc/keys
           printf '%s' "$APK_SIGN_KEY" > cports/etc/keys/ci.rsa
           chmod 600 cports/etc/keys/ci.rsa
+          openssl rsa -in cports/etc/keys/ci.rsa -pubout \
+            -out cports/etc/keys/ci.rsa.pub
+          # cbuild so conhece a chave via [signing] no config.ini
+          printf '[signing]\nkey = etc/keys/ci.rsa\n' > cports/etc/config.ini
 
       - name: bootstrap
         working-directory: cports
