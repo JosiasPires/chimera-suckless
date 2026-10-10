@@ -1,9 +1,9 @@
 name: publish-repo
 
-# Publica o repo apk (gh-pages) a partir dos artifacts mais recentes
-# dos dois builds. Publicar por workflow separava e CLOBBERAVA o indice
-# (cada build gera indice so com seus pacotes); aqui o indice e
-# regenerado sobre o merge (cbuild index).
+# Publica o repo apk + site docs (gh-pages) a partir dos artifacts mais
+# recentes dos dois builds. Publicar por workflow separava e CLOBBERAVA o
+# indice (cada build gera indice so com seus pacotes); aqui o indice e
+# regenerado sobre o merge (cbuild index). O site sai dos .md do overlay.
 on:
   workflow_run:
     workflows: ["build-userspace", "build-kernel"]
@@ -27,10 +27,15 @@ jobs:
           ref: master
           path: cports
 
+      - name: checkout overlay (fonte do site)
+        uses: actions/checkout@v4
+        with:
+          path: overlay
+
       - name: host deps
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -qy python3 git bubblewrap openssl ca-certificates
+          sudo apt-get install -qy python3 python3-markdown git bubblewrap openssl ca-certificates
           curl -fsSLO https://repo.chimera-linux.org/apk/latest/apk-x86_64.static
           chmod +x apk-x86_64.static
           sudo install -m755 apk-x86_64.static /usr/local/bin/apk
@@ -74,10 +79,23 @@ jobs:
           ls packages/user/x86_64/*.apk 2>/dev/null | wc -l
           ./cbuild index packages/user
 
+      - name: build docs site
+        run: |
+          python3 overlay/docs/build-site.py overlay site-out
+          ls site-out/
+
+      - name: stage publish dir (repo + site)
+        run: |
+          rm -rf public && mkdir -p public
+          cp -r cports/packages/. public/
+          cp site-out/index.html site-out/guia.html site-out/ci.html site-out/pacotes.html site-out/style.css public/
+          touch public/.nojekyll
+          ls public/
+
       - name: publish to gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./cports/packages
+          publish_dir: ./public
           publish_branch: gh-pages
           keep_files: true

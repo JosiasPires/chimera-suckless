@@ -10,6 +10,9 @@ Nada é compilado no target: userspace e kernel vêm como `.apk` do
 overlay (`cports/user/`), buildados no GitHub Actions e publicados em
 `gh-pages` (ver `docs/CI.md`).
 
+**Documentação online**: https://josiaspires.github.io/chimera-suckless/
+(início, guia de instalação, CI, tabela de pacotes — gerada dos `.md`).
+
 Funciona em **VM e em máquina real** (no hardware real, gere o `.config` do
 kernel via `localmodconfig` a partir do genérico — ver `GUIDE.md`).
 

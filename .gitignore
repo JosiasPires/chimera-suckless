@@ -1,0 +1,6 @@
+# gerado por docs/build-site.py (publicado via CI, nao commitar)
+site/
+# build dirs do cbuild (se alguem rodar na raiz do repo por engano)
+builddir/
+destdir/
+pkgstage/

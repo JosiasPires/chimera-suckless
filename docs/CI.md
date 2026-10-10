@@ -100,11 +100,18 @@ Secret `APK_SIGN_KEY` cadastrado.
 
 ## Dual-kernel e promoção
 
-- `linux-tiny` entra no CI **depois** que o pipeline provar-se estável
-  (decisão registrada; template ainda a escrever).
-- Regra permanente: o kernel **garantido** (build local + boot validado)
-  fica pinado na VM; o kernel do CI publica em canal separado e só vira
-  primário após teste de boot com fallback (mesmo ritual BootNext usado).
+- **Garantido** (fallback permanente): `linux-stable` do Chimera, intocado.
+- **Primário**: `linux-tiny` do overlay (UKI `Chimera-UKI` primeiro no
+  `BootOrder`); se falhar, o firmware cai no EFISTUB/genérico.
+
+## Site de docs (gh-pages)
+
+- `docs/build-site.py` gera HTML de `README.md`, `GUIDE.md`,
+  `docs/CI.md` + tabela de pacotes lida dos templates
+  (`out-dir` padrão `site/`, ignorado no git). Requer `python3-markdown`.
+- O job `publish.yml` builda o site e publica junto do repo apk na raiz
+  do `gh-pages` (`index.html`, `guia.html`, `ci.html`, `pacotes.html`):
+  fonte única nos `.md`, sem HTML commitado.
 
 ## Licoes do primeiro build local (para debug futuro)
 
