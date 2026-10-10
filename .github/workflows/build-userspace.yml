@@ -77,6 +77,17 @@ jobs:
         working-directory: cports
         run: ./cbuild bootstrap
 
+      - name: diagnose sysusers on failure
+        if: failure()
+        working-directory: cports
+        run: |
+          ls -la bldroot/etc/ | head -25
+          ls bldroot/usr/lib/sysusers.d/ 2>&1
+          /usr/bin/bwrap --unshare-all --hostname cbuild \
+            --bind $PWD/bldroot / --dev /dev --proc /proc --tmpfs /tmp \
+            --uid 1337 --gid 1337 --chdir / -- usr/bin/sd-sysusers
+          echo "sd-sysusers rc=$?"
+
       - name: build overlay packages
         working-directory: cports
         run: |
