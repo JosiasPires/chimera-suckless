@@ -70,6 +70,10 @@ da VM (ver GUIDE.md), com pinning <code>@local</code> para preferir nossos pacot
   package</code> no primeiro teste do zero: índice de 771b vs 3495b).
   O job de publish também precisa de <code>bubblewrap</code> instalado
   (<code>cbuild index</code> chama bwrap).</li>
+<li>Endurecido após recorrência: downloads com <code>if_no_artifact_found:
+  error</code> (artifact expirado = falha alto, nunca publica parcial) +
+  gate que exige ≥10 <code>.apk</code> com <code>linux-tiny</code> e <code>bswc</code> presentes +
+  retenção dos artifacts em 90d.</li>
 </ul>
 <p><strong>Status</strong>: primeiro verde em ambos (userspace ~minutos, kernel ~12min
 no runner gratuito de 4 cores — sem necessidade de otimizar por ora).
