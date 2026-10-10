@@ -118,6 +118,7 @@ if ! curl -fsSI --max-time 15 "$OVERLAY_URL/x86_64/APKINDEX.tar.gz" >/dev/null 2
     OVERLAY_URL="https://raw.githubusercontent.com/JosiasPires/chimera-suckless/gh-pages/user"
 fi
 echo "overlay: $OVERLAY_URL"
+mkdir -p /media/root/etc/apk/repositories.d /media/root/etc/apk/keys
 echo "$OVERLAY_URL" > /media/root/etc/apk/repositories.d/10-overlay.list
 if [ -f "$SCRIPT_DIR/keys/ci.rsa.pub" ]; then
     cp "$SCRIPT_DIR/keys/ci.rsa.pub" /media/root/etc/apk/keys/
