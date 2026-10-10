@@ -52,9 +52,8 @@ ask TIMEZONE "Timezone" "America/Sao_Paulo"
 ask XKBLAYOUT "Keymap do console (XKB)" "br"
 ask WALLPAPER_URL "URL do wallpaper (vazio pula)" "https://picsum.photos/seed/chimera/1920/1080"
 
-say "desktop (compositor fixo: bswc)"
+say "desktop (compositor fixo: bswc, sem XWayland)"
 ask TERMINAL "Terminal: foot ou hst (st-wl)" "hst"
-ask XWAYLAND "Suporte XWayland? (s/n)" "n"
 ask BAR_OPTS "Barra: mojito+bard / mojito-shell / nenhuma" "mojito-shell"
 ask WITH_AUDIO "Instalar stack de audio? (s/n, fica desligada por padrao)" "s"
 ask LAUNCHER "Launcher extra: rofi / fuzzel / nenhum" "rofi"
@@ -64,7 +63,7 @@ ask SSH_FLAVOR "SSH: openssh ou dropbear(compila)?" "dropbear"
 ask NET_FLAVOR "Rede: dhcp ou statica?" "statica"
 ask STATIC_IP "IP estatico (se statica)" "192.168.122.187/24"
 ask STATIC_GW "Gateway (se statica)" "192.168.122.1"
-ask KERNEL_FLAVOR "Kernel: generico ou tiny(custom, longo)?" "generico"
+ask KERNEL_FLAVOR "Kernel: generico ou tiny (pacote overlay + UKI)?" "generico"
 ask DISABLE_EXTRA "Desabilitar chrony/syslog/polkit/dbus/elogind? (s/n)" "s"
 
 case "$DISK" in /dev/nvme*|/dev/mmcblk*) P="p";; *) P="";; esac
@@ -109,16 +108,31 @@ say "bootstrap (demora)"
 chimera-bootstrap /media/root base-full linux-stable cryptsetup-scripts efibootmgr mksh
 cp /usr/lib/apk/repositories.d/02-repo-user.list \
    /media/root/usr/lib/apk/repositories.d/
+
+# ---------- repo overlay chimera-suckless (nossos pacotes) ----------
+# Pacotes assinados com keys/ci.rsa.pub; prefere Pages, cai p/ raw se o
+# site ainda nao estiver ativado (Settings -> Pages -> branch gh-pages).
+say "repo overlay"
+OVERLAY_URL="https://josiaspires.github.io/chimera-suckless/user"
+if ! curl -fsSI --max-time 15 "$OVERLAY_URL/x86_64/APKINDEX.tar.gz" >/dev/null 2>&1; then
+    OVERLAY_URL="https://raw.githubusercontent.com/JosiasPires/chimera-suckless/gh-pages/user"
+fi
+echo "overlay: $OVERLAY_URL"
+echo "$OVERLAY_URL" > /media/root/etc/apk/repositories.d/10-overlay.list
+if [ -f "$SCRIPT_DIR/keys/ci.rsa.pub" ]; then
+    cp "$SCRIPT_DIR/keys/ci.rsa.pub" /media/root/etc/apk/keys/
+else
+    curl -fsSL "https://raw.githubusercontent.com/JosiasPires/chimera-suckless/main/keys/ci.rsa.pub" \
+        -o /media/root/etc/apk/keys/ci.rsa.pub || { echo "falha ao buscar chave do overlay"; exit 1; }
+fi
 chimera-chroot /media/root apk update
 
 # ---------- pacotes ----------
+# (stack wayland + kernel tiny vem do overlay, mais abaixo; aqui so base)
 say "pacotes"
-PKGS="foot dhcpcd openssh seatd elogind dbus polkit mesa mesa-devel firmware-linux
-firmware-linux-amd-ucode util-linux lm-sensors iw wpa_supplicant acpi git clang
-bmake meson ninja muon pkgconf wayland-devel wayland-protocols libinput-devel
-libxkbcommon-devel pixman-devel libdrm-devel udev-devel fontconfig-devel
-libevdev-devel mtdev-devel curl gmake"
-case "$TERMINAL" in foot) ;; *) PKGS=$(echo "$PKGS" | sed 's/foot //');; esac
+PKGS="dhcpcd openssh seatd elogind dbus polkit mesa firmware-linux
+firmware-linux-amd-ucode util-linux lm-sensors iw wpa_supplicant acpi git curl"
+case "$TERMINAL" in foot) PKGS="$PKGS foot";; esac
 case "$LAUNCHER" in rofi) PKGS="$PKGS rofi";; fuzzel) PKGS="$PKGS fuzzel";; esac
 case "$WITH_AUDIO" in s*) PKGS="$PKGS pipewire wireplumber";; esac
 # shellcheck disable=SC2086
@@ -153,8 +167,23 @@ case "$SSH_FLAVOR" in
 esac
 case "$NET_FLAVOR" in
   dhcp) chimera-chroot /media/root ln -sf /usr/lib/dinit.d/dhcpcd /etc/dinit.d/boot.d/dhcpcd;;
-  *) echo "(rede estatica configurada depois do 1o boot)"; \
-     chimera-chroot /media/root ln -sf /usr/lib/dinit.d/dhcpcd /etc/dinit.d/boot.d/dhcpcd;;
+  *)
+    say "rede estatica ($STATIC_IP via $STATIC_GW)"
+    IFACE=$(ip -o link show | awk -F': ' '$2 != "lo" {print $2; exit}')
+    [ -n "$IFACE" ] || { echo "sem interface (sem lo)!"; exit 1; }
+    echo "interface: $IFACE"
+    fetch_cfg net-static.sh /tmp/net-static.sh
+    mkdir -p /media/root/usr/local/sbin
+    sed -e "s/enp1s0/$IFACE/g" -e "s|192.168.122.187/24|$STATIC_IP|g" \
+        -e "s|192.168.122.1|$STATIC_GW|g" /tmp/net-static.sh \
+        > /media/root/usr/local/sbin/net-static.sh
+    chmod +x /media/root/usr/local/sbin/net-static.sh
+    fetch_cfg net-static.service /media/root/etc/dinit.d/net-static
+    chimera-chroot /media/root ln -sf /etc/dinit.d/net-static /etc/dinit.d/boot.d/net-static 2>/dev/null || \
+      chimera-chroot /media/root sh -c "mkdir -p /etc/dinit.d/boot.d && ln -sf /etc/dinit.d/net-static /etc/dinit.d/boot.d/"
+    # dhcpcd fica instalado mas desligado (fallback manual se a estatica falhar)
+    printf 'nameserver %s\n' "$STATIC_GW" > /media/root/etc/resolv.conf
+    ;;
 esac
 
 # ---------- zram nativo (dinit-zram) ----------
@@ -172,50 +201,51 @@ printf '#!/bin/sh\n# gancho local (zram e gerenciado pelo dinit: zram-device@zra
     > /media/root/etc/rc.local
 chmod +x /media/root/etc/rc.local
 
-# ---------- initramfs + efistub ----------
+# ---------- initramfs + efistub (+ tiny opcional) ----------
 say "initramfs + EFISTUB"
 chimera-chroot /media/root update-initramfs -c -k all
+case "$KERNEL_FLAVOR" in
+  tiny*)
+    say "kernel tiny via apk (overlay)"
+    # cmdline ANTES do apk add: o hook 55-tiny-uki.sh exige o arquivo
+    mkdir -p /media/root/etc/kernel
+    fetch_cfg uki-cmdline.txt /media/root/etc/kernel/cmdline-tiny
+    chimera-chroot /media/root apk add linux-tiny
+    # hooks kernel.d rodam no chroot (00-setup, 50-initramfs, 55-tiny-uki);
+    # se algo nao gerou, completa aqui:
+    KVER_TINY=$(ls /media/root/boot/ | sed -n 's/vmlinuz-//p' | grep tiny | sort -V | tail -1)
+    [ -n "$KVER_TINY" ] || { echo "vmlinuz tiny ausente em /boot!"; exit 1; }
+    [ -f "/media/root/boot/initrd.img-$KVER_TINY" ] || \
+      chimera-chroot /media/root update-initramfs -c -k "$KVER_TINY"
+    echo "kernel tiny: $KVER_TINY"
+    ;;
+esac
 KVER=$(ls /media/root/boot/ | sed -n 's/vmlinuz-//p' | head -1)
-echo "kernel: $KVER"
+echo "kernel generic (fallback): $KVER"
 efibootmgr --create --disk "$DISK" --part 1 --label "Chimera" \
   --loader "\\vmlinuz-$KVER" \
   --unicode "root=/dev/mapper/crypt rw initrd=\\initrd.img-$KVER"
+if [ -n "${KVER_TINY:-}" ]; then
+  # entry EFISTUB direta do tiny (fallback) + UKI (primario, se gerado)
+  efibootmgr --create --disk "$DISK" --part 1 --label "Chimera-tiny" \
+    --loader "\\vmlinuz-$KVER_TINY" \
+    --unicode "root=/dev/mapper/crypt rw console=ttyS0,115200 console=tty0 initrd=\\initrd.img-$KVER_TINY"
+  if [ -f /media/root/boot/EFI/Linux/chimera-tiny.efi ]; then
+    efibootmgr --create --disk "$DISK" --part 1 --label "Chimera-UKI" \
+      --loader "\\EFI\\Linux\\chimera-tiny.efi"
+  else
+    echo "AVISO: UKI nao gerado no chroot; sera criado no 1o boot pelo hook (ou rode ukify manual, GUIDE §11b)"
+  fi
+fi
 pause
 
-# ---------- wayland ----------
-say "stack wayland (neuswc). Com XWayland=$XWAYLAND"
-if [ "$XWAYLAND" = "s" ]; then
-    chimera-chroot /media/root apk add libxcb-dev xcb-util-wm-dev
-    BSWC_PKGS="neuipc swc wayland-server xkbcommon libinput pixman-1 libdrm wld libudev xcb xcb-composite xcb-ewmh xcb-icccm"
-else
-    BSWC_PKGS="neuipc swc wayland-server xkbcommon libinput pixman-1 libdrm wld libudev"
-fi
-chimera-chroot /media/root sh -c "
-set -e
-export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/lib/pkgconfig
-mkdir -p /opt/wayland; cd /opt/wayland
-[ -d neuipc ] || git clone https://codeberg.org/binkd/neuipc
-(cd neuipc && meson setup build 2>/dev/null; ninja -C build && meson install -C build)
-[ -d neuwld ] || git clone https://git.sr.ht/~shrub900/neuwld
-(cd neuwld && (muon setup build || meson setup build) && ninja -C build && (ninja -C build install || muon -C build install))
-[ -d neuswc ] || git clone https://git.sr.ht/~shrub900/neuswc
-(cd neuswc && rm -rf build && meson setup build && ninja -C build && meson install -C build)
-[ -d bswc ] || git clone https://codeberg.org/binkd/bswc
-(cd bswc && bmake clean 2>/dev/null; bmake PKGS=\"$BSWC_PKGS\" && cp bswc bswcctl /usr/local/bin/)
-[ -d mojito ] || git clone https://git.sr.ht/~dlm/mojito
-(cd mojito && gmake clean 2>/dev/null; gmake 'PKGS=wayland-client wld pixman-1 fontconfig' && cp mojito /usr/local/bin/)
-[ -d wawa ] || git clone https://codeberg.org/sewn/wawa.git
-(cd wawa && bmake && cp wawa /usr/local/bin/ || true)
-echo WAYLAND_STACK_OK
-"
-case "$TERMINAL" in
-  hst) chimera-chroot /media/root sh -c \
-    "cd /opt/wayland && [ -d hst ] || git clone https://git.sr.ht/~dlm/hst; cd hst && bmake && cp st-wl /usr/local/bin/";;
-esac
-case "$BAR_OPTS" in
-  mojito-shell) : ;; # bar.sh criada abaixo
-  *) echo "(adapte a barra manualmente depois)";;
-esac
+# ---------- stack wayland (pacotes do overlay) ----------
+say "stack wayland via apk (overlay)"
+WLPGS="neuipc neuwld neuswc bswc mojito wawa pfetch"
+case "$TERMINAL" in hst) WLPGS="$WLPGS hst";; esac
+# shellcheck disable=SC2086
+chimera-chroot /media/root apk add $WLPGS
+echo "wayland via apk OK (binarios em /usr/bin, libs como dependencias)"
 pause
 
 # ---------- configs ----------

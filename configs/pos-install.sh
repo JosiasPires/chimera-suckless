@@ -34,8 +34,8 @@ echo "edite /usr/lib/pam.d/turnstiled e system-login comentando a linha pam_elog
 # (dbus-daemon, pipewire, pipewire-pulse, wireplumber) com backup, e use
 # ~/bin/audio on|off (lancamento direto, sem dinit).
 
-# Kernel tiny: ver GUIDE.md secao 16 (longo; mantenha a entry generica!).
-# Depois: pfetch no lugar do fastfetch, hst no lugar do foot (opcional),
-# swappiness (configs/sysctl-tiny.conf), zram nativo
-# (configs/dinit-zram-swap.conf).
+# Kernel tiny: `apk add linux-tiny` (hook UKI cuida de /boot+entry;
+# cmdline em /etc/kernel/cmdline-tiny). Ver GUIDE.md secao 16.
+# Depois: pfetch no lugar do fastfetch (`apk add pfetch`), hst no lugar
+# do foot (`apk add hst`, opcional), swappiness (configs/sysctl-tiny.conf).
 echo "pos-install: revise e descomente/aplique o que quiser usar"

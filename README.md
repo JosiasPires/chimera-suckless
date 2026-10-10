@@ -3,8 +3,12 @@
 Instalação minimalista e reproduzível do **Chimera Linux**: FDE (LUKS2) +
 EFISTUB **sem bootloader** + zram + desktop Wayland suckless
 (**bswc** sobre **neuswc/neuwld**, terminal `hst`, barra `mojito`) +
-kernel custom `tiny` opcional. Resultado medido: **~110MB idle no tty**
+kernel `tiny` opcional. Resultado medido: **~110MB idle no tty**
 (contra ~400MB de uma instalação padrão com gráfico).
+
+Nada é compilado no target: userspace e kernel vêm como `.apk` do
+overlay (`cports/user/`), buildados no GitHub Actions e publicados em
+`gh-pages` (ver `docs/CI.md`).
 
 Funciona em **VM e em máquina real** (no hardware real, gere o `.config` do
 kernel via `localmodconfig` a partir do genérico — ver `GUIDE.md`).
@@ -44,29 +48,29 @@ chimera-suckless/
 │   ├── audio            # audio on|off|status (pipewire sob demanda)
 │   ├── foot.ini         # (se preferir foot ao hst)
 │   ├── net-static.sh + net-static.service
-│   ├── dinit-zram-swap.conf   # zram nativo ([zram0] size=(/ ram 2), zstd)
+│   ├── dinit-zram-swap.conf   # zram nativo (bytes literais, zstd)
 │   ├── sysctl-tiny.conf       # vm.swappiness=120
-│   ├── uki-cmdline.txt        # cmdline embutida no UKI
+│   ├── uki-cmdline.txt        # cmdline embutida no UKI (-> /etc/kernel/cmdline-tiny)
 │   ├── pos-install.sh         # dieta pós-boot (serviços, PAM, dropbear...)
-│   └── tiny-kernel/     # .config validado + lista de símbolos mandatórios
-└── cports/              # overlay de pacotes (fase seguinte)
-    └── user/            # templates: neuipc, neuwld, neuswc, bswc, ...
+│   └── tiny-kernel/     # .config validado do linux-tiny
+├── cports/user/         # overlay: neuipc neuwld neuswc bswc mojito wawa
+│                        #   hst pfetch linux-tiny (+hook UKI 55-tiny-uki.sh)
+├── keys/ci.rsa.pub      # chave pública que assina os pacotes
+├── docs/CI.md           # como o CI builda/publica + lições
+└── .github/workflows/   # build-userspace.yml, build-kernel.yml, update-check.yml
 ```
+
+## Repo de pacotes (gh-pages)
+
+Publicado pelo CI em `gh-pages` (`user/x86_64/` + `APKINDEX`).
+Para consumir, ative o Pages (Settings → Pages → branch `gh-pages`;
+URL `https://josiaspires.github.io/chimera-suckless/user`) ou use o
+raw (`https://raw.githubusercontent.com/JosiasPires/chimera-suckless/gh-pages/user`),
+instale `keys/ci.rsa.pub` em `/etc/apk/keys/` e adicione a URL em
+`/etc/apk/repositories.d/`. Detalhes: `GUIDE.md` seção 6b.
 
 ## Estratégia dual-kernel
 
-- **Garantido** (fallback permanente): kernel compilado e validado por nós
-  (`configs/tiny-kernel/config-tiny`), entry EFI própria + genérica de rescue.
-- **Primário**: build do GitHub Actions, mais recente; se falhar, o BootOrder
-  cai sozinho no garantido.
-
-## Pacotes (cports)
-
-Templates em `cports/user/` geram `.apk` assinados (repo local via HTTP na
-instalação; `pinning` prefere os nossos). Guia de contribuição futura ao
-cports oficial: versões estáveis, `black`/`ruff`, sem snapshots.
-
-## Status
-
-Instalador + guia funcionais (testados em VM libvirt). Kernel tiny validado
-com 3+ cold boots. Dieta e UKI documentados no GUIDE.
+- **Garantido** (fallback permanente): `linux-stable` do Chimera, intocado.
+- **Primário**: `linux-tiny` do overlay (UKI `Chimera-UKI` primeiro no
+  `BootOrder`); se falhar, o firmware cai no EFISTUB/genérico.

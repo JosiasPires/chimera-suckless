@@ -3,9 +3,10 @@
 Instalação do Chimera Linux numa VM/libvirt (ou PC) com: **FDE (LUKS2) senha única**,
 **EFISTUB sem bootloader**, **zram**, usuário `mksh`, e desktop Wayland minimalista
 **bswc + neuswc + neuwld** (https://wayland.fyi), com kernel `linux-stable` ou
-kernel custom `tiny`. É o procedimento exato que resultou em **~110MB idle no tty**
-(407MB no início). Funciona para bswc; adaptações para hevel/tohu são triviais
-(mesma base neuswc/neuwld).
+`linux-tiny` **via pacotes do overlay** — sem compilar nada no target (o build
+acontece no GitHub Actions; ver `docs/CI.md`). É o procedimento exato que
+resultou em **~110MB idle no tty** (407MB no início). Funciona para bswc;
+adaptações para hevel/tohu são triviais (mesma base neuswc/neuwld).
 
 > Para LLM: execute fase por fase, valide cada saída antes de prosseguir.
 > Comandos marcados `[LIVE]` rodam no live ISO como root; `[CHROOT]` via
@@ -27,9 +28,9 @@ ESP_PART=${DISK}1      # ajuste p/ nvme: ${DISK}p1
 CRYPT_PART=${DISK}2    # ajuste p/ nvme: ${DISK}p2
 ```
 
-Requisitos: live ISO do Chimera bootada em UEFI, rede funcionando, ~4GB RAM
-para compilar (kernel tiny precisa de ~8 vCPUs e paciência). Acesso SSH ao live:
-usuário `anon` senha `chimera`, root senha `chimera`.
+Requisitos: live ISO do Chimera bootada em UEFI, rede funcionando, 4GB RAM.
+Acesso SSH ao live: usuário `anon` senha `chimera`, root senha `chimera`.
+Nada é compilado no target — os pacotes vêm prontos do overlay (seção 6b).
 
 ## 1. Acesso e reconhecimento [LIVE]
 
@@ -111,16 +112,32 @@ cp /usr/lib/apk/repositories.d/02-repo-user.list \
    /media/root/usr/lib/apk/repositories.d/
 chimera-chroot /media/root apk update
 chimera-chroot /media/root apk add \
-  foot rofi dhcpcd openssh seatd elogind dbus polkit mesa mesa-devel \
+  foot rofi dhcpcd openssh seatd elogind dbus polkit mesa \
   firmware-linux firmware-linux-amd-ucode util-linux lm-sensors iw \
-  wpa_supplicant acpi git clang bmake meson ninja muon pkgconf wayland-devel \
-  wayland-protocols libinput-devel libxkbcommon-devel pixman-devel \
-  libdrm-devel udev-devel fontconfig-devel libevdev-devel mtdev-devel curl gmake
+  wpa_supplicant acpi git curl
 ```
 
-Nomes corretos no Chimera (pegadinhas): `udev-devel` (não eudev),
-`mesa` (não mesa-dri-gallium), sem `samu`/`fetch` (use `ninja`+`muon`,
-`curl`). `rofi`/`mksh`/`bmake` vêm do repo `user`.
+Nomes corretos no Chimera (pegadinhas): `mesa` (não mesa-dri-gallium).
+`rofi`/`mksh` vêm do repo `user`. Toolchain de compilação (meson, clang,
+bmake…) **não** é mais necessária: o userspace vem pronto do overlay
+(seção 6b/12).
+
+## 6b. Repo overlay chimera-suckless [CHROOT]
+
+Pacotes próprios (`neuipc neuwld neuswc bswc mojito wawa hst pfetch
+linux-tiny`), assinados com `keys/ci.rsa.pub`, publicados pelo CI em
+`gh-pages` (ver `docs/CI.md`):
+
+```sh
+# prefira o Pages; se der 404 (site ainda nao ativado em
+# Settings -> Pages -> branch gh-pages), use o raw:
+echo "https://josiaspires.github.io/chimera-suckless/user" \
+    > /etc/apk/repositories.d/10-overlay.list
+# (fallback) echo "https://raw.githubusercontent.com/JosiasPires/chimera-suckless/gh-pages/user" > ...
+curl -fsSL https://raw.githubusercontent.com/JosiasPires/chimera-suckless/main/keys/ci.rsa.pub \
+    -o /etc/apk/keys/ci.rsa.pub
+apk update   # deve listar o overlay sem 404
+```
 
 ## 7. fstab, crypttab, identidade [CHROOT]
 
@@ -209,65 +226,43 @@ efibootmgr -v | grep -A2 Chimera   # anote o número (ex: Boot0008)
 Sem `grub`/`systemd-boot`/`limine`. Opcional (firmware chato): cópia fallback
 para `\EFI\BOOT\BOOTX64.EFI`.
 
-## 11b. UKI opcional (validado p/ o tiny; mantém EFISTUB como fallback)
+## 11b. UKI (automático via hook do pacote linux-tiny)
 
-Empacota kernel+initrd+cmdline num `.efi` único (pacote `systemd-boot-ukify`,
-só a ferramenta — nenhum bootloader). Sem assinatura (SecureBoot off):
-
-```sh
-apk add systemd-boot-ukify
-mkdir -p /boot/EFI/Linux
-ukify build --linux=/boot/vmlinuz-7.2.2-tiny \
-  --initrd=/boot/initrd.img-7.2.2-tiny \
-  --cmdline='root=/dev/mapper/crypt rw console=ttyS0,115200 console=tty0' \
-  --output=/boot/EFI/Linux/chimera-tiny.efi   # ~10MB, unsigned
-efibootmgr --create --disk $DISK --part 1 --label "Chimera-UKI" \
-  --loader "\\EFI\\Linux\\chimera-tiny.efi"    # sem --unicode: cmdline vai embutida
-```
-
-Ordem sugerida: UKI primeiro, EFISTUB depois, genérico por último.
-Regenerar o UKI a cada rebuild de kernel/initramfs (automação futura:
-hook em `/usr/lib/kernel.d/`, ver plano cports). Valide `BootCurrent` após
-o boot + cold boot antes de confiar.
-
-## 12. Stack Wayland: neuipc → neuwld → neuswc → bswc → mojito [CHROOT]
-
-Ordem obrigatória. Env sempre (pkgconfigs em /usr/local):
-`export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/lib/pkgconfig`
+O pacote `linux-tiny` instala `/usr/lib/kernel.d/55-tiny-uki.sh`, que roda
+após o `50-initramfs` a cada operação kernel.d: rebuilda
+`/boot/EFI/Linux/chimera-tiny.efi` (kernel+initrd+cmdline) quando necessário
+e recria a entry `Chimera-UKI` preservando a posição no `BootOrder`.
+Requer a cmdline de uma linha em `/etc/kernel/cmdline-tiny`
+(conteúdo padrão em `configs/uki-cmdline.txt`):
 
 ```sh
-mkdir -p /opt/wayland; cd /opt/wayland
-git clone https://codeberg.org/binkd/neuipc && cd neuipc \
-  && meson setup build && ninja -C build && meson install -C build && cd ..
-git clone https://git.sr.ht/~shrub900/neuwld && cd neuwld \
-  && (muon setup build || meson setup build) && ninja -C build \
-  && (ninja -C build install || muon -C build install) && cd ..
-# neuswc EXIGE PKG_CONFIG_PATH (senão: dependency 'wld' found: NO):
-git clone https://git.sr.ht/~shrub900/neuswc && cd neuswc \
-  && meson setup build && ninja -C build && meson install -C build && cd ..
+mkdir -p /etc/kernel
+cp configs/uki-cmdline.txt /etc/kernel/cmdline-tiny   # ANTES do apk add
+apk add linux-tiny   # puxa systemd-boot-ukify + efibootmgr sozinho
 ```
 
-**bswc sem XWayland** (pegadinhas: `DERIVE=1` força `-static` e quebra no
-musl/Chimera por falta de `.a` — compile dinâmico sobrescrevendo `PKGS`;
-não há target `install`, copie na mão):
+Sem assinatura (SecureBoot off). Ordem sugerida: UKI primeiro, EFISTUB
+depois, genérico por último. Manual (fallback/diagnóstico):
 
 ```sh
-git clone https://codeberg.org/binkd/bswc && cd bswc
-bmake 'PKGS=neuipc swc wayland-server xkbcommon libinput pixman-1 libdrm wld libudev'
-cp bswc bswcctl /usr/local/bin/   # dentro do chroot = /media/root/usr/local/bin/
+ukify build --linux=/boot/vmlinuz-<ver> --initrd=/boot/initrd.img-<ver> \
+  --cmdline="$(cat /etc/kernel/cmdline-tiny)" \
+  --output=/boot/EFI/Linux/chimera-tiny.efi
 ```
 
-Com XWayland: instale `libxcb-* xcb-util-wm` e compile sem sobrescrever `PKGS`.
+## 12. Stack Wayland via apk (overlay)
+
+Ordem de dependência resolvida pelo próprio apk (não compile na mão):
 
 ```sh
-# mojito: use gmake (não bmake) e inclua pixman+fontconfig (wld.pc incompleto):
-git clone https://git.sr.ht/~dlm/mojito && cd mojito \
-  && gmake 'PKGS=wayland-client wld pixman-1 fontconfig' && cp mojito /usr/local/bin/
-# wawa (wallpaper): bmake && cp wawa /usr/local/bin/
-git clone https://codeberg.org/sewn/wawa.git && cd wawa && bmake && cp wawa /usr/local/bin/
-# hst (terminal wayland; binário chama-se st-wl; precisa de fonte, ex: Liberation):
-git clone https://git.sr.ht/~dlm/hst && cd hst && bmake && cp st-wl /usr/local/bin/
+apk add neuipc neuwld neuswc bswc mojito wawa hst pfetch
+# hst instala o binario st-wl; pfetch substitui o fastfetch (secao 15)
 ```
+
+Binários em `/usr/bin`, libs como dependências. Notas do empacotamento
+(detalhes em `docs/CI.md`): `bswc` **sem XWayland** (dinâmico, sem xcb);
+`mojito` compilado com `gmake PKGS='wayland-client wld pixman-1 fontconfig'`;
+`hst` inclui `tic` do terminfo; `swc-launch` (neuswc) com setuid.
 
 ## 13. Barra, configs, wallpaper [CHROOT]
 
@@ -283,6 +278,7 @@ git clone https://git.sr.ht/~dlm/hst && cd hst && bmake && cp st-wl /usr/local/b
   foi exatamente o bug "tela preta" que vimos):
   `swc-launch bswc &` → espera `$XDG_RUNTIME_DIR/wayland-*` → exporta
   `WAYLAND_DISPLAY` → `wawa fill ~/Pictures/wallpaper.jpg &` → `bar | mojito &` → `wait`.
+  (Binários do overlay ficam em `/usr/bin`, no PATH — sem `/usr/local`.)
 - Wallpaper: `curl -L -o ~/Pictures/wallpaper.jpg <URL>`.
 - `foot.ini` mínimo em `~/.config/foot/` se usar foot.
 
@@ -300,7 +296,7 @@ No console: senha LUKS → login. SSH volta via dhcp.
 
 Ordem de custo-benefício (tudo reversível; valide com `free` + cold boot a cada passo):
 
-1. `apk del fastfetch` + instalar `pfetch` (script shell, `curl` do GitHub).
+1. `apk del fastfetch` (o `pfetch` já vem no overlay: `apk add pfetch`).
 2. Desabilitar serviços: `dinitctl stop X` + `ln -sf /dev/null /etc/dinit.d/X`
    (máscara lida no boot). Testados OFF sem quebrar nada: `chrony`+`chronyd`,
    `syslog-ng`, `polkitd`, `dbus-daemon`, `elogind`, `dinit-dbus`.
@@ -322,56 +318,27 @@ Ordem de custo-benefício (tudo reversível; valide com `free` + cold boot a cad
    voltam no boot por mecanismo não identificado (não é o `dinit-agetty`;
    máscaras `/dev/null` não seguram) — quirk de ~5MB, documentado como tal.
 
-## 16. Kernel tiny (opcional, avançado — economizou ~240MB aqui)
-
-Só tente com fallback (entry genérica) e tempo livre. Requer no target:
-`apk add gcc flex bison elfutils-devel openssl-devel perl bash binutils gsed`
-(o `sed` do Chimera é busybox e quebra o build do kernel — use um dir com
-`ln -s gsed sed` no **início do PATH** ao compilar; `objcopy` vem no binutils).
+## 16. Kernel tiny (via pacote — recomendado)
 
 ```sh
-cd /opt/kernel
-curl -LO https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.2.2.tar.xz
-tar xf linux-7.2.2.tar.xz; cd linux-7.2.2
-make tinyconfig
-./scripts/config --set-str LOCALVERSION "-tiny" -e <LISTA> && make olddefconfig
+cp configs/uki-cmdline.txt /etc/kernel/cmdline-tiny   # ANTES do apk add
+apk add linux-tiny   # hooks: /boot + initrd + UKI + entry, sozinho
 ```
 
-⚠️ **Armadilhas reais encontradas** (cada uma custou um ciclo de rescue):
-- `scripts/config` usa `#!/bin/bash` — sem bash, falha silenciosa (exit 127).
-- `tinyconfig` é **32-bit por padrão** → `-e 64BIT` (firmware x64 rejeita com `Unsupported`).
-- `olddefconfig` **derruba símbolos com dependência não atendida sem avisar**:
-  verifique cada um com `grep CONFIG_X=y .config` após cada rodada. Cadeias
-  que morderam: `BLOCK` (p/ VIRTIO_BLK/DM/EXT4), `MULTIUSER` (p/ SECURITY→YAMA),
-  `NAMESPACES` (p/ UTS/IPC/PID/NET_NS), `SYSVIPC` (p/ IPC_NS).
-- Stale archives após remover subsistemas (`built-in.a` corrompidos):
-  `make clean` (preserva `.config`) + rebuild total.
-- Lista que funcionou nesta VM (tudo `=y`, deps resolvidas via olddefconfig):
-  SMP KVM_GUEST PARAVIRT CGROUPS SECCOMP EFI EFI_STUB EFIVAR_FS RELOCATABLE
-  RANDOMIZE_BASE PCI VIRTIO* (BLK/NET/CONSOLE/BALLOON/PCI/MENU) DRM*
-  (VIRTIO_GPU incl.) FB/EFI/VESA FRAMEBUFFER_CONSOLE VT/VT_CONSOLE VGA/DUMMY
-  INPUT/KEYBOARD/EVDEV ATKBD SERIO_I8042 USB_* HID* ATA/ATA_PIIX BLK_DEV_DM
-  DM_CRYPT EFI/MSDOS_PARTITION EXT4 VFAT NLS_* TMPFS PROC SYSFS DEVTMPFS(+MOUNT)
-  BLK_DEV_INITRD RD_GZIP/XZ/ZSTD CRYPTO(+AES(NI)/XTS/SHA256/ZSTD) NET/INET/IPV6/
-  PACKET/UNIX BPF_SYSCALL RTC*/CMOS ACPI/BUTTON SERIAL_8250(+CONSOLE) HW_RANDOM(+
-  VIRTIO) TTY UNIX98_PTYS PRINTK SWAP ZRAM ZSMALLOC BINFMT_ELF/SCRIPT/MISC
-  FILE_LOCKING INOTIFY_USER SIGNALFD TIMERFD EPOLL EVENTFD CGROUP_SCHED MEMCG(
-  +SWAP) BLK_CGROUP(+IOCOST) PIDS/DEVICE/MISC/BPF KEXEC(+FILE) SECURITY+YAMA
-  COREDUMP SYSVIPC POSIX_MQUEUE NAMESPACES+UTS/IPC/PID/NET FUTEX(+PI) MEMFD
-  AIO SND(+TIMER/PCM/HWDEP/SEQ/RAWMIDI/JACK/HDA_INTEL/codecs generics) MTRR
-  X86_PAT HYPERVISOR_GUEST MAGIC_SYSRQ. Sem USB/ATA na 2a versão (nada USB/SATA
-  na VM) + `64BIT`.
-- `BINFMT_*`, `FILE_LOCKING` (cryptsetup morre sem), controllers de cgroup
-  (script `cgroups.sh` falha com lista vazia por causa do `set -e`!), `FUTEX`
-  (pipewire morre com ENOSYS), `MEMFD`, `EVENTFD` — todos ausentes no tinyconfig
-  e exigidos pelo userspace moderno. `KEXEC/YAMA/COREDUMP/BINFMT_MISC` calam o
-  helper `sysctl` do dinit (ou verifique se ele tolera — aqui preferimos ligar).
-- Instalar: `make modules_install` (cria `/lib/modules/<ver>` p/ update-initramfs),
-  `cp arch/x86/boot/bzImage /boot/vmlinuz-<ver>`, `sync`,
-  `sha256sum` origem×destino (OBRIGATÓRIO — destroy sem sync já nos queimou),
-  `update-initramfs -c -k <ver>` (6.5MB vs 73MB; confira `crypttab` dentro),
-  entry `efibootmgr` nova **mantendo a antiga**, teste via `efibootmgr -n`
-  (one-shot) + console serial antes de inverter o `BootOrder`.
+A cadeia kernel.d faz tudo: `00-setup-kernels` (rsync p/ `/boot`),
+`50-initramfs` (initrd), `55-tiny-uki.sh` (UKI + entry `Chimera-UKI`,
+preservando o `BootOrder`). Co-instalável com o `linux-stable`
+(fallback permanente). Valide com `efibootmgr` + reboot + cold boot.
+Detalhes de empacotamento e promoção dual-kernel: `docs/CI.md` (+ hook
+em `cports/user/linux-tiny/files/`, config em `configs/tiny-kernel/`).
+
+Notas de quem empacotou (se um dia precisar rebuildar na mão):
+- `tinyconfig` é **32-bit por padrão** → `-e 64BIT`.
+- `olddefconfig` derruba símbolos sem avisar: confira `BLOCK MULTIUSER
+  NAMESPACES SYSVIPC BINFMT_* FILE_LOCKING FUTEX MEMFD EVENTFD`
+  cgroups, `SECURITY+YAMA`, `SND/HDA`, `MTRR/X86_PAT`, `ZRAM_BACKEND_*`.
+- `sed` do Chimera é busybox (quebra o build): `gsed` no PATH primeiro.
+- Histórico completo das armadilhas: `git log` do repo.
 
 ## 17. Debug de boot (caixa de ferramentas validada)
 
