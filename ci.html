@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CI e empacotamento — chimera-suckless</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav>
+<a href="index.html">Início</a>
+<a href="guia.html">Guia de instalação</a>
+<a href="ci.html">CI e empacotamento</a>
+<a href="pacotes.html">Pacotes</a>
+<a class="repo" href="https://github.com/JosiasPires/chimera-suckless">GitHub</a>
+</nav>
+<main>
+<h1 id="ci-github-actions-como-funciona-e-como-operar">CI (GitHub Actions) — como funciona e como operar</h1>
+<h2 id="segredos-necessarios">Segredos necessários</h2>
+<table>
+<thead>
+<tr>
+<th>Secret</th>
+<th>Conteúdo</th>
+<th>Como gerar</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>APK_SIGN_KEY</code></td>
+<td>chave <strong>privada</strong> rsa do cports (<code>etc/keys/ci-*.rsa</code>)</td>
+<td><code>./cbuild keygen</code> local (nunca commitar!)</td>
+</tr>
+</tbody>
+</table>
+<p>No runner, além de gravar a privada em <code>cports/etc/keys/ci.rsa</code>, é
+preciso registrá-la (<code>printf '[signing]\nkey = etc/keys/ci.rsa\n'</code>
+em <code>cports/etc/config.ini</code>) + derivar a <code>.pub</code> via openssl — o cbuild
+só conhece chave pelo config (<code>no signing key set</code> caso contrário) e
+não há flag CLI para isso.</p>
+<p>A <code>.pub</code> correspondente fica em <code>keys/ci.rsa.pub</code> neste repo (pública, pode
+commitar) e vai para <code>/etc/apk/keys</code> das máquinas que consomem o repo.</p>
+<h2 id="paridade-local-rodar-igual-ao-ci">Paridade local (rodar igual ao CI)</h2>
+<pre><code class="language-sh">git clone https://github.com/chimera-linux/cports ~/cports
+cp -r chimera-suckless/cports/user/. ~/cports/user/
+cd ~/cports
+./cbuild keygen            # só na 1a vez (ou reuse a chave existente)
+./cbuild bootstrap
+./cbuild pkg user/neuipc user/neuwld user/neuswc
+./cbuild pkg user/bswc user/mojito user/wawa user/hst user/pfetch
+</code></pre>
+<p>O repo local sai em <code>~/cports/packages/</code>; sirva via HTTP e aponte o <code>apk</code>
+da VM (ver GUIDE.md), com pinning <code>@local</code> para preferir nossos pacotes.</p>
+<h2 id="workflows">Workflows</h2>
+<ul>
+<li><code>build-userspace.yml</code>: push/PR com path-filter nos 8 pacotes
+  userspace. Bootstrap binário, build, artifact <code>apk-userspace</code>; na
+  <code>main</code>, publica em <code>gh-pages</code>.</li>
+<li><code>build-kernel.yml</code>: push com path-filter em <code>cports/user/linux-tiny/</code></li>
+<li>manual. Build só do <code>user/linux-tiny</code> (<code>timeout-minutes: 120</code>),
+  artifact <code>apk-kernel</code>; na <code>main</code>, publica na mesma <code>gh-pages</code>
+  (<code>keep_files: true</code>). Sem trigger em PR (economiza ~30min de runner).</li>
+<li><code>update-check.yml</code>: cron semanal (inclui <code>user/linux-tiny</code>), abre
+  issue se houver versão nova.</li>
+<li><code>publish.yml</code> (repo único): roda ao fim de cada build (<code>workflow_run</code>)
+  ou manual; baixa os artifacts mais recentes dos dois builds, faz merge,
+  regenera o índice (<code>cbuild index</code>) e publica. <strong>Nunca publique por
+  workflow de build separado</strong> — cada build gera índice só com seus
+  pacotes e clobbera o índice full (foi exatamente o bug <code>no such
+  package</code> no primeiro teste do zero: índice de 771b vs 3495b).
+  O job de publish também precisa de <code>bubblewrap</code> instalado
+  (<code>cbuild index</code> chama bwrap).</li>
+</ul>
+<p><strong>Status</strong>: primeiro verde em ambos (userspace ~minutos, kernel ~12min
+no runner gratuito de 4 cores — sem necessidade de otimizar por ora).
+Secret <code>APK_SIGN_KEY</code> cadastrado.</p>
+<h2 id="licoes-do-ci-runners-hospedados-ubuntu">Licoes do CI (runners hospedados Ubuntu)</h2>
+<ul>
+<li><strong>Signing key</strong>: gravar a privada em <code>cports/etc/keys/</code> não basta; o
+  cbuild só a reconhece via <code>[signing] key = etc/keys/ci.rsa</code> no
+  <code>etc/config.ini</code> (sem flag CLI). Erro típico: <code>no signing key set</code>
+  no bootstrap. Derivar a <code>.pub</code> com openssl no mesmo step.</li>
+<li><strong>User namespaces bloqueados</strong>: runners têm
+  <code>apparmor_restrict_unprivileged_userns=1</code> → <code>bwrap</code> falha com
+  <code>setting up uid map: Permission denied</code>. Fix: um step com
+  <code>sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0</code>
+  antes do bootstrap (com <code>sudo</code> o sysctl é permitido).</li>
+<li><strong>Symlinks de subpacote</strong>: o overlay precisa commitar os links
+  <code>&lt;pkg&gt;-devel -&gt; &lt;pkg&gt;</code> (convenção do cports); sem eles,
+  <code>subpackage ... is missing a symlink</code> e o bulk falha. <code>cp -r</code> no
+  workflow preserva symlinks.</li>
+<li><strong>Linter</strong>: o cbuild exige <code>flake8</code> ou <code>ruff</code> (<code>auto</code>); instalar ruff
+  (binário estático) no <code>host deps</code> deixa o resultado determinístico
+  entre imagens de runner.</li>
+</ul>
+<h2 id="linux-tiny-kernel-do-overlay">linux-tiny (kernel do overlay)</h2>
+<ul>
+<li>Template em <code>cports/user/linux-tiny/</code>: <code>FLAVOR=tiny</code>, só <code>x86_64</code>,
+  co-instalável com <code>linux-stable</code> (sem <code>provides=["linux"]</code>), hook
+  <code>files/55-tiny-uki.sh</code> (rebuild do UKI + entry <code>Chimera-UKI</code>) e
+  <code>files/config-x86_64.tiny</code> (<code>.config</code> validado na VM + símbolos de
+  toolchain ajustados p/ clang, igual aos kernels oficiais).</li>
+<li><code>patches/fix-tools-makeoverrides.patch</code>: o <code>chimera-buildkernel</code>
+  passa <code>CFLAGS</code>/<code>HOSTCFLAGS</code> (vazios) na linha de comando de <strong>todo</strong>
+  <code>make</code>, e uma definição de command-line anula as atribuições dos
+  makefiles das tools (ex. <code>CFLAGS := ...</code> de tools/lib/subcmd) — o
+  build do objtool perde todos os <code>-I</code>
+  (<code>fatal error: 'linux/compiler.h' file not found</code>). O patch filtra
+  essas duas vars de <code>MAKEOVERRIDES</code> em <code>tools/Makefile</code>, demovendo-as
+  a variáveis de ambiente (que os makefiles sobrescrevem normalmente);
+  escopo restrito às tools, kernel propriamente dito intocado.</li>
+<li>Bump de <code>pkgrel</code> exige <code>CONFIG_LOCALVERSION="-&lt;pkgrel&gt;-tiny"</code> no config.</li>
+<li>Kernel sem módulos não gera <code>modules.order</code>, mas os hooks de kernel.d
+  exigem o arquivo; o template cria um vazio em
+  <code>usr/lib/modules/*-tiny/apk-dist/</code> no <code>install()</code>.</li>
+<li>O hook UKI escolhe a versão pelo carimbo
+  <code>/boot/EFI/Linux/.chimera-tiny.version</code>, não por mtime: vmlinuz
+  empacotado carrega mtime do build (sempre mais velho que um UKI já
+  gerado), então teste <code>-nt</code> puro pula upgrades para sempre.</li>
+</ul>
+<h2 id="dual-kernel-e-promocao">Dual-kernel e promoção</h2>
+<ul>
+<li><strong>Garantido</strong> (fallback permanente): <code>linux-stable</code> do Chimera, intocado.</li>
+<li><strong>Primário</strong>: <code>linux-tiny</code> do overlay (UKI <code>Chimera-UKI</code> primeiro no
+  <code>BootOrder</code>); se falhar, o firmware cai no EFISTUB/genérico.</li>
+</ul>
+<h2 id="site-de-docs-gh-pages">Site de docs (gh-pages)</h2>
+<ul>
+<li><code>docs/build-site.py</code> gera HTML de <code>README.md</code>, <code>GUIDE.md</code>,
+  <code>docs/CI.md</code> + tabela de pacotes lida dos templates
+  (<code>out-dir</code> padrão <code>site/</code>, ignorado no git). Requer <code>python3-markdown</code>.</li>
+<li>O job <code>publish.yml</code> builda o site e publica junto do repo apk na raiz
+  do <code>gh-pages</code> (<code>index.html</code>, <code>guia.html</code>, <code>ci.html</code>, <code>pacotes.html</code>):
+  fonte única nos <code>.md</code>, sem HTML commitado.</li>
+</ul>
+<h2 id="licoes-do-primeiro-build-local-para-debug-futuro">Licoes do primeiro build local (para debug futuro)</h2>
+<ul>
+<li><code>makedepends</code> de libs: incluir runtime + <code>-devel</code> (+ <code>-static</code> se a lib
+  for estática); <code>-devel</code> sozinho não traz o <code>.so</code>.</li>
+<li>Subpacotes <code>-devel</code>: usar <code>return self.default_devel()</code>.</li>
+<li><code>post_install</code> com <code>self.install_license(...)</code> é obrigatório.</li>
+<li><code>pkgdesc</code> sem parênteses; listas de deps em ordem alfabética.</li>
+<li><code>CFLAGS</code> na linha de comando anula o <code>+=</code> dos Makefiles BSD — patchar
+  com variável própria (<code>ALL_CFLAGS</code>) em bswc/mojito; <code>CPPFLAGS</code> não entra
+  na regra implícita do bmake (wawa: <code>#define _GNU_SOURCE</code> no fonte).</li>
+<li><code>install()</code> do template chama-se <code>install</code> (não <code>do_install</code>); <code>files/</code>
+  não entra no sandbox (copiar no <code>post_extract</code>); <code>install_bin</code> aceita
+  <code>name=</code>; <code>tic</code> precisa de <code>-o</code> para o destdir.</li>
+<li>Primeiro build de template com subpacote novo pode pedir
+  <code>cbuild relink-subpkgs</code>; <code>clean</code> resolve caches meson travados.</li>
+</ul>
+</main>
+<footer>chimera-suckless — Chimera Linux minimalista (bswc + tiny + UKI). Docs geradas dos .md do repo.</footer>
+</body>
+</html>

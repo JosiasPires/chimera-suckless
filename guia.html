@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guia de instalação — chimera-suckless</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav>
+<a href="index.html">Início</a>
+<a href="guia.html">Guia de instalação</a>
+<a href="ci.html">CI e empacotamento</a>
+<a href="pacotes.html">Pacotes</a>
+<a class="repo" href="https://github.com/JosiasPires/chimera-suckless">GitHub</a>
+</nav>
+<main>
+<h1 id="chimera-linux-minimal-install-guia-completo-humano-llm">Chimera Linux minimal install — guia completo (humano + LLM)</h1>
+<p>Instalação do Chimera Linux numa VM/libvirt (ou PC) com: <strong>FDE (LUKS2) senha única</strong>,
+<strong>EFISTUB sem bootloader</strong>, <strong>zram</strong>, usuário <code>mksh</code>, e desktop Wayland minimalista
+<strong>bswc + neuswc + neuwld</strong> (https://wayland.fyi), com kernel <code>linux-stable</code> ou
+<code>linux-tiny</code> <strong>via pacotes do overlay</strong> — sem compilar nada no target (o build
+acontece no GitHub Actions; ver <code>docs/CI.md</code>). É o procedimento exato que
+resultou em <strong>~110MB idle no tty</strong> (407MB no início). Funciona para bswc;
+adaptações para hevel/tohu são triviais (mesma base neuswc/neuwld).</p>
+<blockquote>
+<p>Para LLM: execute fase por fase, valide cada saída antes de prosseguir.
+Comandos marcados <code>[LIVE]</code> rodam no live ISO como root; <code>[CHROOT]</code> via
+<code>chimera-chroot /media/root</code>. Nunca pule a verificação indicada.</p>
+</blockquote>
+<h2 id="0-convencoes-e-requisitos">0. Convenções e requisitos</h2>
+<pre><code class="language-sh">DISK=/dev/vda        # DISCO QUE SERÁ APAGADO (wipe total). Confira com lsblk!
+ESP_SIZE=1G
+HOSTNAME=chimerabtw
+USERNAME=alucard
+USER_PASS=123123
+ROOT_PASS=chimera
+FDE_PASS=123123        # senha do LUKS (pode ser igual à do usuário)
+TIMEZONE=America/Sao_Paulo
+XKBLAYOUT=br           # keymap do console (ex: br, us)
+ESP_PART=${DISK}1      # ajuste p/ nvme: ${DISK}p1
+CRYPT_PART=${DISK}2    # ajuste p/ nvme: ${DISK}p2
+</code></pre>
+<p>Requisitos: live ISO do Chimera bootada em UEFI, rede funcionando, 4GB RAM.
+Acesso SSH ao live: usuário <code>anon</code> senha <code>chimera</code>, root senha <code>chimera</code>.
+Nada é compilado no target — os pacotes vêm prontos do overlay (seção 6b).</p>
+<h2 id="1-acesso-e-reconhecimento-live">1. Acesso e reconhecimento [LIVE]</h2>
+<pre><code class="language-sh">ssh -o StrictHostKeyChecking=no anon@IP
+su -   # senha chimera
+lsblk -o NAME,SIZE,TYPE,FSTYPE,PARTTYPE,MOUNTPOINT
+ls /sys/firmware/efi   # deve existir (= boot UEFI; EFISTUB exige isso)
+free -h; nproc
+lspci -k | grep -i -A2 vga; ls /dev/dri/
+apk update
+</code></pre>
+<h2 id="2-repositorio-user-no-live-live">2. Repositório <code>user</code> no live [LIVE]</h2>
+<p>O repo padrão só tem <code>main</code>. Vários pacotes (rofi, mksh, bmake) estão no <code>user</code>:</p>
+<pre><code class="language-sh">echo &quot;v3 https://repo.chimera-linux.org/current/user&quot; \
+    &gt;&gt; /usr/lib/apk/repositories.d/02-repo-user.list
+apk update
+</code></pre>
+<h2 id="3-particionamento-fde-live-apaga-tudo">3. Particionamento + FDE [LIVE] ⚠️ APAGA TUDO</h2>
+<p>Layout (único viável de "FDE + EFISTUB sem bootloader": o ESP fica fora do LUKS,
+pois o firmware UEFI não descriptografa nada):</p>
+<pre><code>GPT: p1 1G EFI System (C12A7328-...) + p2 resto Linux (0FC63DAF-...)
+p1 -&gt; vfat EFI, montado em /boot (kernel+initramfs ficam AQUI, legíveis)
+p2 -&gt; LUKS2 -&gt; ext4 -&gt; /
+</code></pre>
+<pre><code class="language-sh">mount | grep -E &quot;$(basename $DISK)&quot; || true   # deve estar vazio
+vgchange -an 2&gt;/dev/null; swapoff -a 2&gt;/dev/null
+wipefs -a $DISK
+sfdisk $DISK &lt;&lt;EOF
+label: gpt
+unit: sectors
+${DISK}1 : start=2048, size=2097152, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=&quot;EFI&quot;
+${DISK}2 : start=2099200, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=&quot;crypt&quot;
+EOF
+wipefs -a $ESP_PART $CRYPT_PART
+mkfs.vfat -F32 -n EFI $ESP_PART
+printf &quot;%s&quot; &quot;$FDE_PASS&quot; | cryptsetup luksFormat --type luks2 $CRYPT_PART -
+printf &quot;%s&quot; &quot;$FDE_PASS&quot; | cryptsetup open $CRYPT_PART crypt -
+mkfs.ext4 -L root /dev/mapper/crypt
+blkid $ESP_PART $CRYPT_PART   # anote PARTUUID do crypt p/ o crypttab
+</code></pre>
+<h2 id="4-montagem-live">4. Montagem [LIVE]</h2>
+<pre><code class="language-sh">mkdir -p /media/root
+mount /dev/mapper/crypt /media/root
+chmod 755 /media/root
+mkdir -p /media/root/boot
+mount $ESP_PART /media/root/boot
+df -h /media/root /media/root/boot
+</code></pre>
+<h2 id="5-bootstrap-live">5. Bootstrap [LIVE]</h2>
+<p>Longo (baixa ~1.2GB). Se a rede falhar com erro de certificado, acerte o relógio
+(<code>date -u</code>, <code>date YYYYMMDDHHmm</code>).</p>
+<pre><code class="language-sh">chimera-bootstrap /media/root base-full linux-stable cryptsetup-scripts efibootmgr mksh
+# boot OK = &quot;Chimera bootstrap successful&quot;, kernel 7.x instalado, /boot com
+# vmlinuz-* + initrd.img-*
+</code></pre>
+<h2 id="6-pos-bootstrap-chroot">6. Pós-bootstrap [CHROOT]</h2>
+<pre><code class="language-sh">cp /usr/lib/apk/repositories.d/02-repo-user.list \
+   /media/root/usr/lib/apk/repositories.d/
+chimera-chroot /media/root apk update
+chimera-chroot /media/root apk add \
+  foot rofi dhcpcd openssh seatd elogind dbus polkit mesa \
+  firmware-linux firmware-linux-amd-ucode util-linux lm-sensors iw \
+  wpa_supplicant acpi git curl
+</code></pre>
+<p>Nomes corretos no Chimera (pegadinhas): <code>mesa</code> (não mesa-dri-gallium).
+<code>rofi</code>/<code>mksh</code> vêm do repo <code>user</code>. Toolchain de compilação (meson, clang,
+bmake…) <strong>não</strong> é mais necessária: o userspace vem pronto do overlay
+(seção 6b/12).</p>
+<h2 id="6b-repo-overlay-chimera-suckless-chroot">6b. Repo overlay chimera-suckless [CHROOT]</h2>
+<p>Pacotes próprios (<code>neuipc neuwld neuswc bswc mojito wawa hst pfetch
+linux-tiny</code>), assinados com <code>keys/ci.rsa.pub</code>, publicados pelo CI em
+<code>gh-pages</code> (ver <code>docs/CI.md</code>):</p>
+<pre><code class="language-sh"># prefira o Pages; se der 404 (site ainda nao ativado em
+# Settings -&gt; Pages -&gt; branch gh-pages), use o raw:
+echo &quot;https://josiaspires.github.io/chimera-suckless/user&quot; \
+    &gt; /etc/apk/repositories.d/10-overlay.list
+# (fallback) echo &quot;https://raw.githubusercontent.com/JosiasPires/chimera-suckless/gh-pages/user&quot; &gt; ...
+curl -fsSL https://raw.githubusercontent.com/JosiasPires/chimera-suckless/main/keys/ci.rsa.pub \
+    -o /etc/apk/keys/ci.rsa.pub
+apk update   # deve listar o overlay sem 404
+</code></pre>
+<h2 id="7-fstab-crypttab-identidade-chroot">7. fstab, crypttab, identidade [CHROOT]</h2>
+<pre><code class="language-sh">chimera-chroot /media/root genfstab -U / &gt; /media/root/etc/fstab
+# esperado: UUID=&lt;ext4&gt; / ext4 ... + UUID=&lt;vfat&gt; /boot vfat ...
+echo &quot;crypt PARTUUID=&lt;PARTUUID-DO-CRYPT&gt; none luks,discard,initramfs&quot; \
+    &gt; /media/root/etc/crypttab
+echo $HOSTNAME &gt; /media/root/etc/hostname
+ln -sf /usr/share/zoneinfo/$TIMEZONE /media/root/etc/localtime
+# keymap do console:
+printf 'XKBMODEL=&quot;pc105&quot;\nXKBLAYOUT=&quot;%s&quot;\n' &quot;$XKBLAYOUT&quot; \
+    &gt; /media/root/etc/default/keyboard
+</code></pre>
+<h2 id="8-usuarios-e-senhas-chroot-pegadinha-grave">8. Usuários e senhas [CHROOT] ⚠️ PEGADINHA GRAVE</h2>
+<p><strong>NÃO use <code>echo user:senha | chpasswd</code> através do <code>chimera-chroot</code>: o stdin não
+chega ao processo no chroot (sai código 0 sem gravar nada, shadow fica sem
+hash e nenhum login funciona!).</strong> Use <code>passwd</code> com stdin repetido:</p>
+<pre><code class="language-sh">chimera-chroot /media/root useradd -m -s /bin/mksh $USERNAME
+chimera-chroot /media/root usermod -aG wheel,kvm,video,input,render $USERNAME
+printf &quot;%s\n%s\n&quot; &quot;$USER_PASS&quot; &quot;$USER_PASS&quot; \
+    | chimera-chroot /media/root passwd $USERNAME
+printf &quot;%s\n%s\n&quot; &quot;$ROOT_PASS&quot; &quot;$ROOT_PASS&quot; \
+    | chimera-chroot /media/root passwd root
+# VALIDE: o 2o campo deve ter hash longo (~100 chars), nunca &quot;x&quot;, &quot;!&quot; ou &quot;*&quot;:
+grep -E &quot;^($USERNAME|root)&quot; /media/root/etc/shadow | awk -F: '{print $1, length($2)}'
+chimera-chroot /media/root pwck -r
+</code></pre>
+<h2 id="9-servicos-dinit-chroot">9. Serviços dinit [CHROOT]</h2>
+<p><code>dinitctl enable</code> só funciona com o dinit rodando; no chroot crie os links:</p>
+<pre><code class="language-sh">cd /media/root/etc/dinit.d/boot.d/
+ln -sf /usr/lib/dinit.d/sshd sshd
+ln -sf /usr/lib/dinit.d/dhcpcd dhcpcd        # ou serviço estático próprio (fase 13)
+ln -sf /usr/lib/dinit.d/seatd seatd
+ln -sf /usr/lib/dinit.d/elogind elogind
+ln -sf /usr/lib/dinit.d/syslog-ng syslog-ng
+</code></pre>
+<h2 id="10-zram-nativo-swap-50-ram-zstd-chroot">10. zram nativo (swap ~50% RAM, zstd) [CHROOT]</h2>
+<p>Via mecanismo oficial do dinit-chimera (melhor que <code>rc.local</code>):
+<code>/etc/dinit-zram.d/swap.conf</code> + serviço <code>zram-device@zram0</code> + ativação
+pelo <code>fstab</code> (o helper só FORMATA; quem ativa é o <code>early-swap</code> via fstab).</p>
+<pre><code class="language-sh">ZRAM_BYTES=$(chimera-chroot /media/root awk '/MemTotal/ {print int($2*1024/2)}' /proc/meminfo)
+mkdir -p /media/root/etc/dinit-zram.d
+printf '[zram0]\nsize = %s\nalgorithm = zstd\nformat = mkswap -U clear %%0\n' \
+    &quot;$ZRAM_BYTES&quot; &gt; /media/root/etc/dinit-zram.d/swap.conf
+echo &quot;/dev/zram0 none swap sw,pri=100 0 0&quot; &gt;&gt; /media/root/etc/fstab
+chimera-chroot /media/root sh -c \
+  &quot;ln -sf /usr/lib/dinit.d/zram-device@zram0 /etc/dinit.d/boot.d/&quot;
+</code></pre>
+<p>⚠️ Descobertas (não caia nessas):
+- O helper da versão atual <strong>não avalia expressões</strong>: <code>size = (/ ram 2)</code> e
+  backticks passam literais e falham. Use bytes literais (calcule por máquina).
+- O helper <strong>só formata</strong> (sem shell no <code>format</code>, sem <code>swapon</code> implícito) —
+  a linha do fstab é obrigatória.
+- zram usa backends próprios (<code>ZRAM_BACKEND_ZSTD</code> no kernel) — <code>CRYPTO_ZSTD</code>
+  sozinho NÃO serve (é só acomp; zram precisa de scomp).
+- <code>rc.local</code> fica como gancho vazio. Valide com <code>cat /proc/swaps</code>
+  (4G prio 100, <code>[zstd]</code>) + cold boot.</p>
+<h2 id="11-initramfs-efistub-sem-bootloader-livechroot">11. initramfs + EFISTUB sem bootloader [LIVE+CHROOT]</h2>
+<pre><code class="language-sh">chimera-chroot /media/root update-initramfs -c -k all
+# confira crypttab dentro do initramfs:
+chimera-chroot /media/root lsinitramfs /boot/initrd.img-* | grep -E &quot;crypttab|local-top/cryptroot&quot;
+KVER=$(ls /media/root/boot/ | sed -n 's/vmlinuz-//p')
+efibootmgr --create --disk $DISK --part 1 --label &quot;Chimera&quot; \
+  --loader &quot;\\vmlinuz-$KVER&quot; \
+  --unicode &quot;root=/dev/mapper/crypt rw initrd=\\initrd.img-$KVER&quot;
+efibootmgr -v | grep -A2 Chimera   # anote o número (ex: Boot0008)
+</code></pre>
+<p>Sem <code>grub</code>/<code>systemd-boot</code>/<code>limine</code>. Opcional (firmware chato): cópia fallback
+para <code>\EFI\BOOT\BOOTX64.EFI</code>.</p>
+<h2 id="11b-uki-automatico-via-hook-do-pacote-linux-tiny">11b. UKI (automático via hook do pacote linux-tiny)</h2>
+<p>O pacote <code>linux-tiny</code> instala <code>/usr/lib/kernel.d/55-tiny-uki.sh</code>, que roda
+após o <code>50-initramfs</code> a cada operação kernel.d: rebuilda
+<code>/boot/EFI/Linux/chimera-tiny.efi</code> (kernel+initrd+cmdline) quando necessário
+e recria a entry <code>Chimera-UKI</code> preservando a posição no <code>BootOrder</code>.
+Requer a cmdline de uma linha em <code>/etc/kernel/cmdline-tiny</code>
+(conteúdo padrão em <code>configs/uki-cmdline.txt</code>):</p>
+<pre><code class="language-sh">mkdir -p /etc/kernel
+cp configs/uki-cmdline.txt /etc/kernel/cmdline-tiny   # ANTES do apk add
+apk add linux-tiny   # puxa systemd-boot-ukify + efibootmgr sozinho
+</code></pre>
+<p>Sem assinatura (SecureBoot off). Ordem sugerida: UKI primeiro, EFISTUB
+depois, genérico por último — <strong>definida explicitamente</strong> (<code>efibootmgr -o</code>),
+nunca confie na ordem padrão do firmware numa NVRAM fresca (ele pode
+bootar o genérico primeiro). Em reinstall, delete entries stale com os
+mesmos labels antes (apontam p/ ESP antigo). Manual (fallback/diagnóstico):</p>
+<pre><code class="language-sh">ukify build --linux=/boot/vmlinuz-&lt;ver&gt; --initrd=/boot/initrd.img-&lt;ver&gt; \
+  --cmdline=&quot;$(cat /etc/kernel/cmdline-tiny)&quot; \
+  --output=/boot/EFI/Linux/chimera-tiny.efi
+</code></pre>
+<h2 id="12-stack-wayland-via-apk-overlay">12. Stack Wayland via apk (overlay)</h2>
+<p>Ordem de dependência resolvida pelo próprio apk (não compile na mão):</p>
+<pre><code class="language-sh">apk add neuipc neuwld neuswc bswc mojito wawa hst pfetch
+# hst instala o binario st-wl; pfetch substitui o fastfetch (secao 15)
+</code></pre>
+<p>Binários em <code>/usr/bin</code>, libs como dependências. Notas do empacotamento
+(detalhes em <code>docs/CI.md</code>): <code>bswc</code> <strong>sem XWayland</strong> (dinâmico, sem xcb);
+<code>mojito</code> compilado com <code>gmake PKGS='wayland-client wld pixman-1 fontconfig'</code>;
+<code>hst</code> inclui <code>tic</code> do terminfo; <code>swc-launch</code> (neuswc) com setuid.</p>
+<h2 id="13-barra-configs-wallpaper-chroot">13. Barra, configs, wallpaper [CHROOT]</h2>
+<ul>
+<li><code>bard/</code> (dentro do repo bswc) mostra workspaces via <code>neuipc</code> para o mojito
+  (<code>%{l}esq%{c}centro%{r}dir</code>, formato lemonbar). Exige <code>bswcctl</code> no PATH
+  (upstream usa <code>/home/binkd/bin</code> fixo — ajuste). Alternativa mínima sem bard:
+  loop shell <code>while :; do date; ...; done | mojito ...</code>.</li>
+<li><code>bswc.conf</code>: copie <code>src/bswc.conf.example</code> para <code>/etc/bswc/bswc.conf</code> e
+  <code>~/.config/bswc/bswc.conf</code>; ajuste <code>spawn</code> (foot/st-wl/rofi). Nota: <code>bswcctl
+  reload</code> NÃO recarrega keybinds — precisa reiniciar o compositor.</li>
+<li>Sessão (<code>~/bin/start-bswc.sh</code>): suba o compositor PRIMEIRO e só lance
+  <code>wawa</code>/<code>mojito</code> <strong>depois do socket Wayland existir</strong> (senão morrem mudos —
+  foi exatamente o bug "tela preta" que vimos):
+  <code>swc-launch bswc &amp;</code> → espera <code>$XDG_RUNTIME_DIR/wayland-*</code> → exporta
+  <code>WAYLAND_DISPLAY</code> → <code>wawa fill ~/Pictures/wallpaper.jpg &amp;</code> → <code>bar | mojito &amp;</code> → <code>wait</code>.
+  (Binários do overlay ficam em <code>/usr/bin</code>, no PATH — sem <code>/usr/local</code>.)</li>
+<li>Wallpaper: <code>curl -L -o ~/Pictures/wallpaper.jpg &lt;URL&gt;</code>.</li>
+<li><code>foot.ini</code> mínimo em <code>~/.config/foot/</code> se usar foot.</li>
+</ul>
+<h2 id="14-desmontar-e-primeiro-boot">14. Desmontar e primeiro boot</h2>
+<pre><code class="language-sh">sync; umount /media/root/boot; umount /media/root
+cryptsetup close crypt
+reboot   # NUNCA `virsh destroy` com writes pendentes no ESP!
+</code></pre>
+<p>No console: senha LUKS → login. SSH volta via dhcp.</p>
+<h2 id="15-dieta-pos-instalacao-o-que-nos-levou-407mb-110mb">15. Dieta pós-instalação (o que nos levou 407MB → ~110MB)</h2>
+<p>Ordem de custo-benefício (tudo reversível; valide com <code>free</code> + cold boot a cada passo):</p>
+<ol>
+<li><code>apk del fastfetch</code> (o <code>pfetch</code> já vem no overlay: <code>apk add pfetch</code>).</li>
+<li>Desabilitar serviços: <code>dinitctl stop X</code> + <code>ln -sf /dev/null /etc/dinit.d/X</code>
+   (máscara lida no boot). Testados OFF sem quebrar nada: <code>chrony</code>+<code>chronyd</code>,
+   <code>syslog-ng</code>, <code>polkitd</code>, <code>dbus-daemon</code>, <code>elogind</code>, <code>dinit-dbus</code>.
+   ⚠️ Efeito: <code>turnstiled</code> reclama no console
+   (<code>pam_elogind... failed to connect</code>) — cosmético; silencie comentando a
+   linha <code>pam_elogind.so</code> em <code>/usr/lib/pam.d/turnstiled</code> e <code>system-login</code>
+   (backup em <code>/root/pam-bak/</code>).</li>
+<li>Autostart de usuário: remover links de <code>/usr/lib/dinit.d/user/boot.d/</code>
+   (backup em <code>/root/user-boot.d-bak/</code>): <code>dbus-daemon</code>, <code>pipewire</code>,
+   <code>pipewire-pulse</code>, <code>wireplumber</code> + script <code>~/bin/audio on|off|status</code>
+   (lança direto, sem dinit — instância de usuário nem sempre existe no SSH).</li>
+<li>Rede estática: serviço dinit próprio (<code>ip addr/route replace</code>, sem flush
+   para não derrubar o SSH) + <code>/etc/resolv.conf</code> estático; mascarar <code>dhcpcd</code>.</li>
+<li>SSH enxuto: compilar dropbear (<code>--disable-syslog</code> REMOVE a flag <code>-E</code>! serviço
+   precisa ser sem <code>-E</code>), chaves <code>dropbearkey</code>, serviço dinit <code>-F -p 22 -r key</code>;
+   migre com fallback (sobe na 2222, testa, vira 22, desliga openssh).</li>
+<li><code>vm.swappiness=120</code> (bom par p/ zram) em <code>/etc/sysctl.conf</code>.</li>
+<li>Gettys: <code>dinitctl stop agetty-service@tty{3..6}</code> funciona na sessão, mas
+   voltam no boot por mecanismo não identificado (não é o <code>dinit-agetty</code>;
+   máscaras <code>/dev/null</code> não seguram) — quirk de ~5MB, documentado como tal.</li>
+</ol>
+<h2 id="16-kernel-tiny-via-pacote-recomendado">16. Kernel tiny (via pacote — recomendado)</h2>
+<pre><code class="language-sh">cp configs/uki-cmdline.txt /etc/kernel/cmdline-tiny   # ANTES do apk add
+apk add linux-tiny   # hooks: /boot + initrd + UKI + entry, sozinho
+</code></pre>
+<p>A cadeia kernel.d faz tudo: <code>00-setup-kernels</code> (rsync p/ <code>/boot</code>),
+<code>50-initramfs</code> (initrd), <code>55-tiny-uki.sh</code> (UKI + entry <code>Chimera-UKI</code>,
+preservando o <code>BootOrder</code>). Co-instalável com o <code>linux-stable</code>
+(fallback permanente). Valide com <code>efibootmgr</code> + reboot + cold boot.
+Detalhes de empacotamento e promoção dual-kernel: <code>docs/CI.md</code> (+ hook
+em <code>cports/user/linux-tiny/files/</code>, config em <code>configs/tiny-kernel/</code>).</p>
+<p>Notas de quem empacotou (se um dia precisar rebuildar na mão):
+- <code>tinyconfig</code> é <strong>32-bit por padrão</strong> → <code>-e 64BIT</code>.
+- <code>olddefconfig</code> derruba símbolos sem avisar: confira <code>BLOCK MULTIUSER
+  NAMESPACES SYSVIPC BINFMT_* FILE_LOCKING FUTEX MEMFD EVENTFD</code>
+  cgroups, <code>SECURITY+YAMA</code>, <code>SND/HDA</code>, <code>MTRR/X86_PAT</code>, <code>ZRAM_BACKEND_*</code>.
+- <code>sed</code> do Chimera é busybox (quebra o build): <code>gsed</code> no PATH primeiro.
+- Histórico completo das armadilhas: <code>git log</code> do repo.</p>
+<h2 id="17-debug-de-boot-caixa-de-ferramentas-validada">17. Debug de boot (caixa de ferramentas validada)</h2>
+<ul>
+<li><code>virsh screenshot</code> + leitura da imagem (VGA).</li>
+<li><code>virsh console</code> (serial; <strong>sem scrollback</strong> — anexe ANTES do evento!).</li>
+<li><code>virsh send-key</code> (+ <code>qemu-monitor-command --hmp "sendkey &lt;tecla&gt; &lt;ms&gt;"</code>
+  para segurar ESC e abrir o Boot Manager; <code>send-key A B</code> em uma chamada = acorde).</li>
+<li><code>efibootmgr -n N</code> (one-shot), <code>-o</code> (ordem), console= invertida:
+  <strong><code>/dev/console</code> é o ÚLTIMO <code>console=</code></strong> — com <code>tty0 ... ttyS0</code>, prompt LUKS
+  some do VGA! Use <code>console=ttyS0,115200 console=tty0</code> p/ prompt no VGA.</li>
+<li><code>dinit_early_debug=1</code> (mostra o 1o serviço que falha), <code>break=top</code>
+  (shell no initramfs), <code>rdinit=/bin/sh</code>, SysRq via HMP (<code>sendkey alt-sysrq-w/t</code>).</li>
+<li>Validade do binário EFI em Python: magic <code>MZ</code> em 0x0, <code>machine==0x8664</code>,
+  <code>opt_magic==0x20b</code> (i386=<code>0x14c</code>/<code>0x10b</code> = rejeitado).</li>
+<li>senhas via console: <code>virsh send-key KEY_1..</code> (PS/2) ou digitação no serial.</li>
+</ul>
+<h2 id="18-medicao-honesta">18. Medição honesta</h2>
+<p>Sempre: sem sessão gráfica, <code>echo 3 &gt; /proc/sys/vm/drop_caches</code>, <code>free -m</code>,
+top RSS (<code>ps -eo rss,comm --sort=-rss</code>). Desconte ~17MB por sessão SSH ativa
+(e cada login SSH pode puxar serviços de usuário via turnstile!). Compare por
+<code>MemAvailable</code>, não só <code>used</code>.</p>
+</main>
+<footer>chimera-suckless — Chimera Linux minimalista (bswc + tiny + UKI). Docs geradas dos .md do repo.</footer>
+</body>
+</html>

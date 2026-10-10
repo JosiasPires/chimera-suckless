@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pacotes — chimera-suckless</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav>
+<a href="index.html">Início</a>
+<a href="guia.html">Guia de instalação</a>
+<a href="ci.html">CI e empacotamento</a>
+<a href="pacotes.html">Pacotes</a>
+<a class="repo" href="https://github.com/JosiasPires/chimera-suckless">GitHub</a>
+</nav>
+<main>
+<h1>Pacotes do overlay</h1>
+<p>Buildados do fonte no GitHub Actions e publicados no repo apk (<code>user/x86_64/</code>). Instalação: ver Guia, seção 6b.</p>
+<table><tr><th>pacote</th><th>versão</th><th>descrição</th><th>subpacotes</th></tr>
+<tr><td><code>bswc</code></td><td>0.0_git20260520-r0</td><td>Simple dynamic-tiling Wayland compositor</td><td><code></code></td></tr>
+<tr><td><code>hst</code></td><td>0.0_git20260805-r0</td><td>Wayland-native terminal emulator</td><td><code></code></td></tr>
+<tr><td><code>linux-tiny</code></td><td>7.2.2-r3</td><td>Linux kernel tiny for chimera-suckless EFISTUB/UKI setups</td><td><code>linux-tiny-devel</code></td></tr>
+<tr><td><code>mojito</code></td><td>0.0_git20260830-r0</td><td>Featherweight lemonbar-compatible bar for Wayland</td><td><code></code></td></tr>
+<tr><td><code>neuipc</code></td><td>0.0_git20260423-r0</td><td>Lightweight Unix IPC library for Wayland compositors</td><td><code>neuipc-devel</code></td></tr>
+<tr><td><code>neuswc</code></td><td>0.0_git20261002-r0</td><td>Library for simple tiling Wayland compositors</td><td><code>neuswc-devel</code></td></tr>
+<tr><td><code>neuwld</code></td><td>0.0_git20260813-r2</td><td>Primitive drawing library for Wayland</td><td><code>neuwld-devel</code></td></tr>
+<tr><td><code>pfetch</code></td><td>0.0_git20240101-r0</td><td>Minimalist system info script</td><td><code></code></td></tr>
+<tr><td><code>wawa</code></td><td>0.0_git20261004-r0</td><td>Simplest wallpaper utility for Wayland</td><td><code></code></td></tr>
+</table>
+<h2>Usar o repositório</h2>
+<pre><code>echo "https://josiaspires.github.io/chimera-suckless/user" \
+    &gt; /etc/apk/repositories.d/10-overlay.list
+curl -fsSL https://raw.githubusercontent.com/JosiasPires/chimera-suckless/main/keys/ci.rsa.pub \
+    -o /etc/apk/keys/ci.rsa.pub
+apk update</code></pre>
+</main>
+<footer>chimera-suckless — Chimera Linux minimalista (bswc + tiny + UKI). Docs geradas dos .md do repo.</footer>
+</body>
+</html>

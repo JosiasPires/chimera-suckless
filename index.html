@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Início — chimera-suckless</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<nav>
+<a href="index.html">Início</a>
+<a href="guia.html">Guia de instalação</a>
+<a href="ci.html">CI e empacotamento</a>
+<a href="pacotes.html">Pacotes</a>
+<a class="repo" href="https://github.com/JosiasPires/chimera-suckless">GitHub</a>
+</nav>
+<main>
+<h1 id="chimera-suckless">chimera-suckless</h1>
+<p>Instalação minimalista e reproduzível do <strong>Chimera Linux</strong>: FDE (LUKS2) +
+EFISTUB <strong>sem bootloader</strong> + zram + desktop Wayland suckless
+(<strong>bswc</strong> sobre <strong>neuswc/neuwld</strong>, terminal <code>hst</code>, barra <code>mojito</code>) +
+kernel <code>tiny</code> opcional. Resultado medido: <strong>~110MB idle no tty</strong>
+(contra ~400MB de uma instalação padrão com gráfico).</p>
+<p>Nada é compilado no target: userspace e kernel vêm como <code>.apk</code> do
+overlay (<code>cports/user/</code>), buildados no GitHub Actions e publicados em
+<code>gh-pages</code> (ver <code>docs/CI.md</code>).</p>
+<p><strong>Documentação online</strong>: https://josiaspires.github.io/chimera-suckless/
+(início, guia de instalação, CI, tabela de pacotes — gerada dos <code>.md</code>).</p>
+<p>Funciona em <strong>VM e em máquina real</strong> (no hardware real, gere o <code>.config</code> do
+kernel via <code>localmodconfig</code> a partir do genérico — ver <code>GUIDE.md</code>).</p>
+<h2 id="uso-rapido">Uso rápido</h2>
+<p>Baixe só o instalador e rode como root no live ISO:</p>
+<pre><code class="language-sh">curl -fsSLO https://raw.githubusercontent.com/JosiasPires/chimera-suckless/main/install.sh
+sh install.sh
+</code></pre>
+<blockquote>
+<p>Leia o script antes de rodar como root. Ele pergunta tudo
+(disco, usuário/senhas, hostname, timezone, keymap, terminal, XWayland,
+áudio, launcher, wallpaper, rede, kernel) e busca as configs sempre
+atualizadas deste repo (<code>configs/</code>), com fallback local.</p>
+</blockquote>
+<p>Ou clone tudo:</p>
+<pre><code class="language-sh">git clone https://github.com/JosiasPires/chimera-suckless
+</code></pre>
+<h2 id="layout">Layout</h2>
+<pre><code>chimera-suckless/
+├── README.md            # este arquivo
+├── LICENSE              # MIT
+├── GUIDE.md             # guia completo, fase a fase (humano + LLM)
+├── install.sh           # instalador interativo (live ISO, como root)
+├── configs/             # dotfiles e serviços, versionados separado do script
+│   ├── bswc.conf        # atalhos Shift (sem Meta), spawn st-wl/rofi
+│   ├── bar.sh           # barra mínima p/ mojito (data + mem), sem bard
+│   ├── start-bswc.sh    # sobe compositor e só então wawa+mojito (via socket)
+│   ├── audio            # audio on|off|status (pipewire sob demanda)
+│   ├── foot.ini         # (se preferir foot ao hst)
+│   ├── net-static.sh + net-static.service
+│   ├── dinit-zram-swap.conf   # zram nativo (bytes literais, zstd)
+│   ├── sysctl-tiny.conf       # vm.swappiness=120
+│   ├── uki-cmdline.txt        # cmdline embutida no UKI (-&gt; /etc/kernel/cmdline-tiny)
+│   ├── pos-install.sh         # dieta pós-boot (serviços, PAM, dropbear...)
+│   └── tiny-kernel/     # .config validado do linux-tiny
+├── cports/user/         # overlay: neuipc neuwld neuswc bswc mojito wawa
+│                        #   hst pfetch linux-tiny (+hook UKI 55-tiny-uki.sh)
+├── keys/ci.rsa.pub      # chave pública que assina os pacotes
+├── docs/CI.md           # como o CI builda/publica + lições
+└── .github/workflows/   # build-userspace.yml, build-kernel.yml, update-check.yml
+</code></pre>
+<h2 id="repo-de-pacotes-gh-pages">Repo de pacotes (gh-pages)</h2>
+<p>Publicado pelo CI em <code>gh-pages</code> (<code>user/x86_64/</code> + <code>APKINDEX</code>).
+Para consumir, ative o Pages (Settings → Pages → branch <code>gh-pages</code>;
+URL <code>https://josiaspires.github.io/chimera-suckless/user</code>) ou use o
+raw (<code>https://raw.githubusercontent.com/JosiasPires/chimera-suckless/gh-pages/user</code>),
+instale <code>keys/ci.rsa.pub</code> em <code>/etc/apk/keys/</code> e adicione a URL em
+<code>/etc/apk/repositories.d/</code>. Detalhes: <code>GUIDE.md</code> seção 6b.</p>
+<h2 id="estrategia-dual-kernel">Estratégia dual-kernel</h2>
+<ul>
+<li><strong>Garantido</strong> (fallback permanente): <code>linux-stable</code> do Chimera, intocado.</li>
+<li><strong>Primário</strong>: <code>linux-tiny</code> do overlay (UKI <code>Chimera-UKI</code> primeiro no
+  <code>BootOrder</code>); se falhar, o firmware cai no EFISTUB/genérico.</li>
+</ul>
+</main>
+<footer>chimera-suckless — Chimera Linux minimalista (bswc + tiny + UKI). Docs geradas dos .md do repo.</footer>
+</body>
+</html>
