@@ -60,7 +60,7 @@ jobs:
           branch: main
           name: apk-userspace
           path: repo
-          if_no_artifact_found: warn
+          if_no_artifact_found: error
 
       - name: fetch kernel artifacts
         uses: dawidd6/action-download-artifact@v6
@@ -69,14 +69,20 @@ jobs:
           branch: main
           name: apk-kernel
           path: repo
-          if_no_artifact_found: warn
+          if_no_artifact_found: error
 
       - name: merge + reindex
         working-directory: cports
         run: |
           mkdir -p packages/user/x86_64
           cp -r ../repo/user/. packages/user/ 2>/dev/null || true
-          ls packages/user/x86_64/*.apk 2>/dev/null | wc -l
+          # gate: nunca publicar indice parcial (ex.: artifact expirado).
+          # espera-se userspace (8+ pkgs) + kernel no merge.
+          NPKGS=$(ls packages/user/x86_64/*.apk 2>/dev/null | wc -l)
+          echo "apks no merge: $NPKGS"
+          ls packages/user/x86_64/linux-tiny-*.apk >/dev/null
+          ls packages/user/x86_64/bswc-*.apk >/dev/null
+          [ "$NPKGS" -ge 10 ]
           ./cbuild index packages/user
 
       - name: build docs site
