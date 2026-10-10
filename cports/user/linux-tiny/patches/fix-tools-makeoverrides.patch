@@ -1,0 +1,17 @@
+--- a/tools/Makefile
++++ b/tools/Makefile
+@@ -4,6 +4,14 @@
+ export srctree=
+ export objtree=
+ 
++# chimera-suckless: do not propagate ambient CFLAGS/HOSTCFLAGS into the
++# tools builds. chimera-buildkernel passes them (possibly empty) on the
++# make command line, and a command-line definition voids the tools' own
++# flag assignments (e.g. tools/lib/subcmd CFLAGS), breaking the build
++# with missing -I flags. Filtering them here demotes them to plain
++# environment variables, which makefile assignments override as usual.
++MAKEOVERRIDES := $(filter-out CFLAGS=% HOSTCFLAGS=%,$(MAKEOVERRIDES))
++
+ include scripts/Makefile.include
+ 
+ help:

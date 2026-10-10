@@ -35,6 +35,27 @@ da VM (ver GUIDE.md), com pinning `@local` para preferir nossos pacotes.
 neuipc, neuwld, neuswc, bswc (+bard), mojito, wawa, hst, pfetch, todos com
 `.apk` gerado. Workflows ainda não rodaram em runner real.
 
+## linux-tiny (kernel do overlay)
+
+- Template em `cports/user/linux-tiny/`: `FLAVOR=tiny`, só `x86_64`,
+  co-instalável com `linux-stable` (sem `provides=["linux"]`), hook
+  `files/55-tiny-uki.sh` (rebuild do UKI + entry `Chimera-UKI`) e
+  `files/config-x86_64.tiny` (`.config` validado na VM + símbolos de
+  toolchain ajustados p/ clang, igual aos kernels oficiais).
+- `patches/fix-tools-makeoverrides.patch`: o `chimera-buildkernel`
+  passa `CFLAGS`/`HOSTCFLAGS` (vazios) na linha de comando de **todo**
+  `make`, e uma definição de command-line anula as atribuições dos
+  makefiles das tools (ex. `CFLAGS := ...` de tools/lib/subcmd) — o
+  build do objtool perde todos os `-I`
+  (`fatal error: 'linux/compiler.h' file not found`). O patch filtra
+  essas duas vars de `MAKEOVERRIDES` em `tools/Makefile`, demovendo-as
+  a variáveis de ambiente (que os makefiles sobrescrevem normalmente);
+  escopo restrito às tools, kernel propriamente dito intocado.
+- Bump de `pkgrel` exige `CONFIG_LOCALVERSION="-<pkgrel>-tiny"` no config.
+- Kernel sem módulos não gera `modules.order`, mas os hooks de kernel.d
+  exigem o arquivo; o template cria um vazio em
+  `usr/lib/modules/*-tiny/apk-dist/` no `install()`.
+
 ## Dual-kernel e promoção
 
 - `linux-tiny` entra no CI **depois** que o pipeline provar-se estável
