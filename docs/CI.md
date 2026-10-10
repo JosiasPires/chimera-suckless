@@ -41,6 +41,14 @@ da VM (ver GUIDE.md), com pinning `@local` para preferir nossos pacotes.
   (`keep_files: true`). Sem trigger em PR (economiza ~30min de runner).
 - `update-check.yml`: cron semanal (inclui `user/linux-tiny`), abre
   issue se houver versão nova.
+- `publish.yml` (repo único): roda ao fim de cada build (`workflow_run`)
+  ou manual; baixa os artifacts mais recentes dos dois builds, faz merge,
+  regenera o índice (`cbuild index`) e publica. **Nunca publique por
+  workflow de build separado** — cada build gera índice só com seus
+  pacotes e clobbera o índice full (foi exatamente o bug `no such
+  package` no primeiro teste do zero: índice de 771b vs 3495b).
+  O job de publish também precisa de `bubblewrap` instalado
+  (`cbuild index` chama bwrap).
 
 **Status**: primeiro verde em ambos (userspace ~minutos, kernel ~12min
 no runner gratuito de 4 cores — sem necessidade de otimizar por ora).
