@@ -67,7 +67,7 @@ jobs:
         run: |
           ls -la bldroot/etc/ | head -25
           ls bldroot/usr/lib/sysusers.d/ 2>&1
-          /usr/bin/bwrap --unshare-all --hostname cbuild \
+          /usr/bin/bwrap --unshare-all --hostname cbuild --share-net \
             --bind $PWD/bldroot / --dev /dev --proc /proc --tmpfs /tmp \
             --uid 1337 --gid 1337 --chdir / -- usr/bin/sd-sysusers
           echo "sd-sysusers rc=$?"
